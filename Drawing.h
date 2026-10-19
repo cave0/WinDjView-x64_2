@@ -18,6 +18,10 @@
 
 #pragma once
 
+inline int CalculateDIBPitch(int nWidth, int nBitCount)
+{
+	return ((nWidth * nBitCount + 31) & ~31) >> 3;
+}
 
 struct CDisplaySettings;
 struct CPrintSettings;
@@ -104,7 +108,7 @@ public:
 	COffscreenDC();
 	virtual ~COffscreenDC();
 
-	bool Create(CDC* pDC, CSize size);
+	bool Create(CDC* pDC, CSize size, int nBitCount = 24);
 	void Release();
 
 	CDIB* GetDIB() { return m_pBitmap; }
@@ -164,9 +168,9 @@ inline COLORREF ChangeBrightness(COLORREF color, double fFactor)
 
 inline COLORREF AlphaCombine(COLORREF crFirst, COLORREF crSecond, BYTE nAlpha)
 {
-	return RGB((GetRValue(crFirst) * (255L - nAlpha) + GetRValue(crSecond) * (0L + nAlpha)) >> 8,
-			(GetGValue(crFirst) * (255L - nAlpha) + GetGValue(crSecond) * (0L + nAlpha)) >> 8,
-			(GetBValue(crFirst) * (255L - nAlpha) + GetBValue(crSecond) * (0L + nAlpha)) >> 8);
+	return RGB((GetRValue(crFirst) * (255L - nAlpha) + GetRValue(crSecond) * (0L + nAlpha) + 128) / 255,
+			(GetGValue(crFirst) * (255L - nAlpha) + GetGValue(crSecond) * (0L + nAlpha) + 128) / 255,
+			(GetBValue(crFirst) * (255L - nAlpha) + GetBValue(crSecond) * (0L + nAlpha) + 128) / 255);
 }
 
 inline COLORREF InvertColor(COLORREF color)
