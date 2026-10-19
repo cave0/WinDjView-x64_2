@@ -25,9 +25,12 @@ inline int CalculateDIBPitch(int nWidth, int nBitCount)
 
 struct CDisplaySettings;
 struct CPrintSettings;
+class CLightweightDIB;
 
 class CDIB : public CBitmap
 {
+	friend class CLightweightDIB;
+
 public:
 	virtual ~CDIB();
 	void Draw(CDC* pDC, const CPoint& ptOffset);
