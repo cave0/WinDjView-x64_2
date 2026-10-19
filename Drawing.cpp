@@ -103,13 +103,12 @@ CDIB* RenderPixmap(GPixmap& pm, const CRect& rcClip, const CDisplaySettings& dis
 	while (nRowLength % 4 != 0)
 		++nRowLength;
 
-	LPBYTE pBits = pBitmap->GetBits();
-	for (int y = rcClip.top; y < rcClip.bottom; ++y, pBits += nRowLength)
-		memcpy(pBits, pm[y] + rcClip.left, rcClip.Width()*3);
-
 	int nBrightness = displaySettings.GetBrightness();
 	int nContrast = displaySettings.GetContrast();
 	double fGamma = displaySettings.GetGamma();
+	int nRowBytes = rcClip.Width() * 3;
+	LPBYTE pBits = pBitmap->GetBits();
+
 	if (fGamma != 1.0 || nBrightness != 0 || nContrast != 0 || displaySettings.bInvertColors)
 	{
 		// Adjust gamma
@@ -126,17 +125,17 @@ CDIB* RenderPixmap(GPixmap& pm, const CRect& rcClip, const CDisplaySettings& dis
 		if (fGamma != 1.0)
 			BuildGammaTable(fGamma, table);
 
-		pBits = pBitmap->GetBits();
 		for (int y = rcClip.top; y < rcClip.bottom; ++y, pBits += nRowLength)
 		{
-			LPBYTE pCurBit = pBits;
-			LPBYTE pEndBit = pCurBit + rcClip.Width()*3;
-			while (pCurBit != pEndBit)
-			{
-				*pCurBit = table[*pCurBit];
-				++pCurBit;
-			}
+			const BYTE* pSrc = reinterpret_cast<const BYTE*>(pm[y] + rcClip.left);
+			for (int x = 0; x < nRowBytes; ++x)
+				pBits[x] = table[pSrc[x]];
 		}
+	}
+	else
+	{
+		for (int y = rcClip.top; y < rcClip.bottom; ++y, pBits += nRowLength)
+			memcpy(pBits, pm[y] + rcClip.left, nRowBytes);
 	}
 
 	return pBitmap;
@@ -466,6 +465,32 @@ CDIB* CDIB::Crop(const CRect& rcCrop)
 	if (pDIB->m_hObject == NULL)
 		return pDIB;
 
+	int nBpp = m_pBMI->bmiHeader.biBitCount;
+	if (nBpp >= 8)
+	{
+		int nBytesPerPixel = nBpp / 8;
+		int nSrcRowLength = ((m_pBMI->bmiHeader.biWidth * nBpp + 31) & ~31) >> 3;
+		int nDstRowLength = ((rcCrop.Width() * nBpp + 31) & ~31) >> 3;
+
+		LPBYTE pSrcBits = m_pBits;
+		LPBYTE pDstBits = pDIB->GetBits();
+
+		bool bBottomUp = (m_pBMI->bmiHeader.biHeight > 0);
+		int nCropHeight = rcCrop.Height();
+		int nCopyBytes = rcCrop.Width() * nBytesPerPixel;
+
+		for (int y = 0; y < nCropHeight; ++y)
+		{
+			int nSrcY = bBottomUp ? (m_pBMI->bmiHeader.biHeight - 1 - (rcCrop.top + y)) : (rcCrop.top + y);
+			int nDstY = bBottomUp ? (nCropHeight - 1 - y) : y;
+
+			memcpy(pDstBits + nDstY * nDstRowLength,
+			       pSrcBits + nSrcY * nSrcRowLength + rcCrop.left * nBytesPerPixel,
+			       nCopyBytes);
+		}
+		return pDIB;
+	}
+
 	CScreenDC dcScreen;
 
 	CDC dcDest;
@@ -705,6 +730,19 @@ CLightweightDIB* CLightweightDIB::Create(CDIB* pSrc)
 	CLightweightDIB* pDIB = new CLightweightDIB();
 
 	ASSERT(pSrc != NULL);
+	if (pSrc->GetBitsPerPixel() == 24)
+	{
+		UINT nSize = sizeof(BITMAPINFOHEADER) + sizeof(RGBQUAD) * pSrc->m_pBMI->bmiHeader.biClrUsed;
+		pDIB->m_pBMI = (LPBITMAPINFO)malloc(nSize);
+		memcpy(pDIB->m_pBMI, pSrc->m_pBMI, nSize);
+
+		int nRowLength = ((pDIB->m_pBMI->bmiHeader.biWidth * 24 + 31) & ~31) >> 3;
+		DWORD dwByteCount = nRowLength * pDIB->GetHeight();
+		pDIB->m_pBits = new BYTE[dwByteCount];
+		memcpy(pDIB->m_pBits, pSrc->m_pBits, dwByteCount);
+		return pDIB;
+	}
+
 	pDIB->CDIB::Create(pSrc, 24);
 
 	if (pDIB->m_hObject == NULL)
@@ -842,21 +880,26 @@ void InvertPolyFrame(CDC* pDC, const POINT* points, int nCount)
 
 void DrawDottedLine(CDC* pDC, const CPoint& ptStart, const CPoint& ptEnd, COLORREF color)
 {
-	if (ptStart.x == ptEnd.x)
-	{
-		ASSERT(ptStart.y <= ptEnd.y);
-		for (int y = ptStart.y; y < ptEnd.y; y += 2)
-			pDC->SetPixel(ptStart.x, y, color);
-	}
-	else if (ptStart.y == ptEnd.y)
-	{
-		ASSERT(ptStart.x <= ptEnd.x);
-		for (int x = ptStart.x; x < ptEnd.x; x += 2)
-			pDC->SetPixel(x, ptStart.y, color);
-	}
-	else
+	if (ptStart.x != ptEnd.x && ptStart.y != ptEnd.y)
 	{
 		ASSERT(false);
+		return;
+	}
+
+	LOGBRUSH lb;
+	lb.lbStyle = BS_SOLID;
+	lb.lbColor = color;
+	lb.lbHatch = 0;
+
+	DWORD dwStyle[2] = { 1, 1 };
+	HPEN hPen = ::ExtCreatePen(PS_COSMETIC | PS_USERSTYLE, 1, &lb, 2, dwStyle);
+	if (hPen != NULL)
+	{
+		HGDIOBJ hOldPen = ::SelectObject(pDC->m_hDC, hPen);
+		::MoveToEx(pDC->m_hDC, ptStart.x, ptStart.y, NULL);
+		::LineTo(pDC->m_hDC, ptEnd.x, ptEnd.y);
+		::SelectObject(pDC->m_hDC, hOldPen);
+		::DeleteObject(hPen);
 	}
 }
 
@@ -1222,9 +1265,15 @@ CRect FindContentRect(GP<DjVuImage> pImage)
 		}
 	}
 
+	if (rcResult.top >= rcResult.bottom)
+	{
+		delete pBmpPage;
+		return CRect(0, 0, 0, 0);
+	}
+
 	// Left margin
 	int y;
-	for (y = 0; y < szImage.cy; ++y)
+	for (y = rcResult.top; y < rcResult.bottom; ++y)
 	{
 		LPBYTE pPixel = pBits + y*nRowLength;
 		LPBYTE pEndPixel = pPixel + nPixelSize*rcResult.left;
@@ -1237,7 +1286,7 @@ CRect FindContentRect(GP<DjVuImage> pImage)
 	}
 
 	// Right margin
-	for (y = 0; y < szImage.cy; ++y)
+	for (y = rcResult.top; y < rcResult.bottom; ++y)
 	{
 		LPBYTE pPixel = pBits + y*nRowLength + nPixelSize*szImage.cx - 1;
 		LPBYTE pEndPixel = pBits + y*nRowLength + nPixelSize*rcResult.right;
