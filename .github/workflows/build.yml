@@ -1,0 +1,16 @@
+name: build-x64
+on: [workflow_dispatch, push]
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with: { arch: x64 }
+      - name: Build
+        shell: cmd
+        run: build_x64.bat
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WinDjView-x64
+          path: Release_x64/WinDjView.exe
