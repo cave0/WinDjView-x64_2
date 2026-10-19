@@ -260,7 +260,8 @@ void CDocPropertiesDlg::PopulateFiles()
 			m_listFiles.SetItemText(nIndex, 1, m_files[i].strName);
 			m_listFiles.SetItemText(nIndex, 2, m_files[i].strType);
 			m_listFiles.SetItemText(nIndex, 3, FormatString(_T("%d"), m_files[i].nSize));
-			m_listFiles.SetItemData(nIndex, reinterpret_cast<DWORD_PTR>(&m_files[i]));
+			// store the index in the item data (safer than storing a pointer)
+			m_listFiles.SetItemData(nIndex, static_cast<DWORD_PTR>(i));
 		}
 
 		if (m_nSortBy == -1 || m_nSortBy == 0)
@@ -298,7 +299,8 @@ void CDocPropertiesDlg::PopulateFiles()
 			int nIndex = m_listFiles.InsertItem(m_files[i].nPageIndex, FormatString(_T("%d"), m_files[i].nPageIndex + 1));
 			m_listFiles.SetItemText(nIndex, 1, m_files[i].strName);
 			m_listFiles.SetItemText(nIndex, 2, FormatString(_T("%d"), m_files[i].nSize));
-			m_listFiles.SetItemData(nIndex, reinterpret_cast<DWORD_PTR>(&m_files[i]));
+			// store the index in the item data (safer than storing a pointer)
+			m_listFiles.SetItemData(nIndex, static_cast<DWORD_PTR>(i));
 		}
 
 		if (m_nSortBy == -1 || m_nSortBy == 1 || m_nSortBy == 3)
@@ -353,22 +355,27 @@ void CDocPropertiesDlg::SortFiles()
 		m_listFiles.GetHeaderCtrl()->SetItem(i, &hdi);
 	}
 
-	int nSortBy = m_nSortBy;
-	if (!m_bSortAsc)
-		nSortBy = -nSortBy - 1;
-	m_listFiles.SortItems(&CompareFiles, nSortBy);
+	// Pass 'this' as lParamSort so CompareFiles can access members (m_files, m_nSortBy, m_bSortAsc)
+	m_listFiles.SortItems(&CompareFiles, reinterpret_cast<LPARAM>(this));
 }
 
 int CALLBACK CDocPropertiesDlg::CompareFiles(LPARAM lParam1, LPARAM lParam2, LPARAM lParamSort)
 {
-	FileInfo* lhs = reinterpret_cast<FileInfo*>(lParam1);
-	FileInfo* rhs = reinterpret_cast<FileInfo*>(lParam2);
+	CDocPropertiesDlg* pThis = reinterpret_cast<CDocPropertiesDlg*>(lParamSort);
+	if (pThis == nullptr)
+		return 0;
 
-	int nMult = (lParamSort >= 0 ? 1 : -1);
-	if (nMult == -1)
-		lParamSort = -lParamSort - 1;
+	int idx1 = static_cast<int>(lParam1);
+	int idx2 = static_cast<int>(lParam2);
+	if (idx1 < 0 || idx1 >= static_cast<int>(pThis->m_files.size()) || idx2 < 0 || idx2 >= static_cast<int>(pThis->m_files.size()))
+		return 0;
 
-	switch (lParamSort)
+	FileInfo* lhs = &pThis->m_files[idx1];
+	FileInfo* rhs = &pThis->m_files[idx2];
+
+	int nMult = (pThis->m_bSortAsc ? 1 : -1);
+
+	switch (pThis->m_nSortBy)
 	{
 	case 1:
 		return nMult*(lhs->nIndex - rhs->nIndex);
