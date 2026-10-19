@@ -550,8 +550,28 @@ bool CDIB::Save(LPCTSTR pszPathName, ImageFormat nFormat) const
 		if (!Gdip::IsLoaded())
 			return false;
 
+		bool bInvertTiff = (nFormat == FormatTIF && GetBitsPerPixel() <= 8 && GetColorCount() <= 2);
+		DWORD nLineLength = static_cast<DWORD>((GetWidth()*GetBitsPerPixel() - 1)/8 + 1);
+		while ((nLineLength % 4) != 0)
+			++nLineLength;
+		DWORD nDwordCount = (GetHeight() * nLineLength) / 4;
+
+		if (bInvertTiff)
+		{
+			for (DWORD* pData = (DWORD*)m_pBits; pData < (DWORD*)m_pBits + nDwordCount; ++pData)
+				*pData = ~*pData;
+		}
+
 		Gdip::Bitmap* pGdipBitmap = NULL;
-		if (Gdip::CreateBitmapFromGdiDib(m_pBMI, m_pBits, &pGdipBitmap) != Gdip::Ok)
+		Gdip::Status status = Gdip::CreateBitmapFromGdiDib(m_pBMI, m_pBits, &pGdipBitmap);
+
+		if (bInvertTiff)
+		{
+			for (DWORD* pData = (DWORD*)m_pBits; pData < (DWORD*)m_pBits + nDwordCount; ++pData)
+				*pData = ~*pData;
+		}
+
+		if (status != Gdip::Ok)
 			return false;
 
 		Gdip::BitmapSetResolution(pGdipBitmap,
@@ -608,18 +628,6 @@ bool CDIB::Save(LPCTSTR pszPathName, ImageFormat nFormat) const
 				{
 					nTiffEncoding = Gdip::EncoderValueCompressionCCITT4;
 					nTiffColorDepth = 1;
-
-					// Invert image
-					DWORD nLineLength = static_cast<DWORD>((GetWidth()*GetBitsPerPixel() - 1)/8 + 1);
-					while ((nLineLength % 4) != 0)
-						++nLineLength;
-
-					for (DWORD* pData = (DWORD*)m_pBits;
-						 pData < (DWORD*)m_pBits + GetHeight()*nLineLength/4;
-						 ++pData)
-					{
-						*pData = ~*pData;
-					}
 				}
 				else
 					nTiffColorDepth = 8;
@@ -755,12 +763,11 @@ void FrameOval(CDC* pDC, const CRect& bounds, COLORREF color)
 {
 	CPen penSolid(PS_SOLID, 1, color);
 	CPen* pOldPen = pDC->SelectObject(&penSolid);
+	CBrush* pOldBrush = (CBrush*)pDC->SelectStockObject(NULL_BRUSH);
 
-	CPoint ptLeft(bounds.left, bounds.CenterPoint().y);
-	CPoint ptRight(bounds.left, bounds.CenterPoint().y);
-	pDC->Arc(bounds, ptLeft, ptRight);
-	pDC->Arc(bounds, ptRight, ptLeft);
+	pDC->Ellipse(bounds);
 
+	pDC->SelectObject(pOldBrush);
 	pDC->SelectObject(pOldPen);
 }
 
@@ -771,7 +778,7 @@ void InvertOvalFrame(CDC* pDC, const CRect& bounds)
 	if (!rcClip.IntersectRect(CRect(rcClip), bounds))
 		return;
 
-	static COffscreenDC offscreenDC;
+	COffscreenDC offscreenDC;
 
 	offscreenDC.Create(pDC, rcClip.Size());
 	CDIB* pDIB = offscreenDC.GetDIB();
@@ -814,7 +821,7 @@ void InvertPolyFrame(CDC* pDC, const POINT* points, int nCount)
 	if (!rcClip.IntersectRect(CRect(rcClip), rcBounds))
 		return;
 
-	static COffscreenDC offscreenDC;
+	COffscreenDC offscreenDC;
 
 	offscreenDC.Create(pDC, rcClip.Size());
 	CDIB* pDIB = offscreenDC.GetDIB();
@@ -870,7 +877,7 @@ void HighlightRect(CDC* pDC, const CRect& rect, COLORREF color, double fTranspar
 	if (!rcClip.IntersectRect(CRect(rcClip), rect))
 		return;
 
-	static COffscreenDC offscreenDC;
+	COffscreenDC offscreenDC;
 
 	offscreenDC.Create(pDC, rcClip.Size());
 	CDIB* pDIB = offscreenDC.GetDIB();
@@ -930,7 +937,7 @@ void HighlightPolygon(CDC* pDC, const POINT* points, int nCount, COLORREF color,
 	if (!rcClip.IntersectRect(CRect(rcClip), rcBounds))
 		return;
 
-	static COffscreenDC offscreenDC, maskDC;
+	COffscreenDC offscreenDC, maskDC;
 
 	offscreenDC.Create(pDC, rcClip.Size());
 	maskDC.Create(pDC, rcClip.Size());
@@ -1480,11 +1487,19 @@ unsigned int __stdcall PrintThreadProc(void* pvData)
 
 	CPrintSettings& printSettings = dlg.m_settings;
 
-	int nPages = (int)dlg.m_arrPages.size();
+	int nSheetCount = (int)dlg.m_arrPages.size();
+	if (nSheetCount == 0)
+	{
+		pProgress->StopProgress(0);
+		::CoUninitialize();
+		return 0;
+	}
+
+	int nPages = nSheetCount;
 	if (printSettings.nCopies > 1 && printSettings.bCollate && !dlg.m_pPrinter->bCanCollate)
 	{
 		// We will do collation ourselves
-		nPages *= printSettings.nCopies;
+		nPages = nSheetCount * printSettings.nCopies;
 		dlg.m_pDevMode->dmCopies = 1;
 	}
 
@@ -1573,8 +1588,9 @@ unsigned int __stdcall PrintThreadProc(void* pvData)
 			return 0;
 		}
 
-		int nPage = dlg.m_arrPages[i].first - 1;
-		int nSecondPage = dlg.m_arrPages[i].second - 1;
+		int nSheetIndex = i % nSheetCount;
+		int nPage = dlg.m_arrPages[nSheetIndex].first - 1;
+		int nSecondPage = dlg.m_arrPages[nSheetIndex].second - 1;
 
 		if ((nPage < 0 || nPage >= pSource->GetPageCount()) &&
 				(!printSettings.bTwoPages || nSecondPage < 0 || nSecondPage >= pSource->GetPageCount()))
