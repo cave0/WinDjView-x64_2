@@ -65,13 +65,12 @@ void BuildGammaTable(double fGamma, BYTE* table)
 	}
 }
 
-void BuildTransparentcyTable(double fTransparency, BYTE c, BYTE* table)
+void BuildTransparencyTable(double fTransparency, BYTE c, BYTE* table)
 {
-	DWORD nAlpha = max(0, min(255, static_cast<DWORD>(fTransparency * 255.0 + 0.5)));
+	int nAlpha = max(0, min(255, static_cast<int>(fTransparency * 255.0 + 0.5)));
 	for (int i = 0; i < 256; ++i)
 	{
-		BYTE color = static_cast<BYTE>((table[i] * nAlpha + c * (255 - nAlpha)) >> 8);
-		table[i] = max(0, min(255, color));
+		table[i] = static_cast<BYTE>((table[i] * nAlpha + c * (255 - nAlpha) + 128) / 255);
 	}
 }
 
@@ -99,22 +98,18 @@ CDIB* RenderPixmap(GPixmap& pm, const CRect& rcClip, const CDisplaySettings& dis
 	if (pBitmap->m_hObject == NULL)
 		return pBitmap;
 
-	int nRowLength = rcClip.Width()*3;
-	while (nRowLength % 4 != 0)
-		++nRowLength;
+	int nRowLength = CalculateDIBPitch(rcClip.Width(), 24);
+	int nRowBytes = rcClip.Width() * 3;
+	LPBYTE pBits = pBitmap->GetBits();
 
 	int nBrightness = displaySettings.GetBrightness();
 	int nContrast = displaySettings.GetContrast();
 	double fGamma = displaySettings.GetGamma();
-	int nRowBytes = rcClip.Width() * 3;
-	LPBYTE pBits = pBitmap->GetBits();
-
 	if (fGamma != 1.0 || nBrightness != 0 || nContrast != 0 || displaySettings.bInvertColors)
 	{
-		// Adjust gamma
 		BYTE table[256];
 		for (int i = 0; i < 256; ++i)
-			table[i] = i;
+			table[i] = static_cast<BYTE>(i);
 
 		if (displaySettings.bInvertColors)
 			BuildInvertTable(table);
@@ -184,10 +179,9 @@ CDIB* RenderBitmap(GBitmap& bm, const CRect& rcClip, const CDisplaySettings& dis
 	double fGamma = displaySettings.GetGamma();
 	if (fGamma != 1.0 || nBrightness != 0 || nContrast != 0 || displaySettings.bInvertColors)
 	{
-		// Adjust gamma
 		BYTE table[256];
 		for (int i = 0; i < 256; ++i)
-			table[i] = i;
+			table[i] = static_cast<BYTE>(i);
 
 		if (displaySettings.bInvertColors)
 			BuildInvertTable(table);
@@ -212,9 +206,7 @@ CDIB* RenderBitmap(GBitmap& bm, const CRect& rcClip, const CDisplaySettings& dis
 	if (pBitmap->m_hObject == NULL)
 		return pBitmap;
 
-	int nRowLength = rcClip.Width();
-	while (nRowLength % 4 != 0)
-		++nRowLength;
+	int nRowLength = CalculateDIBPitch(rcClip.Width(), 8);
 
 	LPBYTE pBits = pBitmap->GetBits();
 	for (int y = rcClip.top; y < rcClip.bottom; ++y, pBits += nRowLength)
@@ -247,10 +239,9 @@ CDIB* RenderEmpty(const CSize& szBitmap, const CDisplaySettings& displaySettings
 	double fGamma = displaySettings.GetGamma();
 	if (fGamma != 1.0 || nBrightness != 0 || nContrast != 0 || displaySettings.bInvertColors)
 	{
-		// Adjust gamma
 		BYTE table[256];
 		for (int i = 0; i < 256; ++i)
-			table[i] = i;
+			table[i] = static_cast<BYTE>(i);
 
 		if (displaySettings.bInvertColors)
 			BuildInvertTable(table);
@@ -272,9 +263,7 @@ CDIB* RenderEmpty(const CSize& szBitmap, const CDisplaySettings& displaySettings
 	if (pBitmap->m_hObject == NULL)
 		return pBitmap;
 
-	int nRowLength = (szBitmap.cx - 1) / 8 + 1;
-	while (nRowLength % 4 != 0)
-		++nRowLength;
+	int nRowLength = CalculateDIBPitch(szBitmap.cx, 1);
 
 	LPBYTE pBits = pBitmap->GetBits();
 	ZeroMemory(pBits, nRowLength*szBitmap.cy);
@@ -322,10 +311,7 @@ void CDIB::Create(const BITMAPINFO* pBMI)
 		CString strTempFile;
 		if (::GetTempFileName(strTempPath, _T("DJV"), 0, strTempFile.GetBuffer(_MAX_PATH)) != 0)
 		{
-			DWORD nLineLength = static_cast<DWORD>(ceil(1.0*pBMI->bmiHeader.biWidth*pBMI->bmiHeader.biBitCount/8.0));
-			while ((nLineLength % 4) != 0)
-				++nLineLength;
-
+			DWORD nLineLength = CalculateDIBPitch(pBMI->bmiHeader.biWidth, pBMI->bmiHeader.biBitCount);
 			DWORD nBitsSize = nLineLength*pBMI->bmiHeader.biHeight;
 
 			// Try to create a mapped file section
@@ -469,8 +455,8 @@ CDIB* CDIB::Crop(const CRect& rcCrop)
 	if (nBpp >= 8)
 	{
 		int nBytesPerPixel = nBpp / 8;
-		int nSrcRowLength = ((m_pBMI->bmiHeader.biWidth * nBpp + 31) & ~31) >> 3;
-		int nDstRowLength = ((rcCrop.Width() * nBpp + 31) & ~31) >> 3;
+		int nSrcRowLength = CalculateDIBPitch(m_pBMI->bmiHeader.biWidth, nBpp);
+		int nDstRowLength = CalculateDIBPitch(rcCrop.Width(), nBpp);
 
 		LPBYTE pSrcBits = m_pBits;
 		LPBYTE pDstBits = pDIB->GetBits();
@@ -576,9 +562,7 @@ bool CDIB::Save(LPCTSTR pszPathName, ImageFormat nFormat) const
 			return false;
 
 		bool bInvertTiff = (nFormat == FormatTIF && GetBitsPerPixel() <= 8 && GetColorCount() <= 2);
-		DWORD nLineLength = static_cast<DWORD>((GetWidth()*GetBitsPerPixel() - 1)/8 + 1);
-		while ((nLineLength % 4) != 0)
-			++nLineLength;
+		DWORD nLineLength = CalculateDIBPitch(GetWidth(), GetBitsPerPixel());
 		DWORD nDwordCount = (GetHeight() * nLineLength) / 4;
 
 		if (bInvertTiff)
@@ -689,8 +673,7 @@ bool CDIB::Save(LPCTSTR pszPathName, ImageFormat nFormat) const
 
 		DWORD dwHeaderSize = sizeof(BITMAPINFOHEADER) +
 			sizeof(RGBQUAD)*m_pBMI->bmiHeader.biClrUsed;
-		DWORD dwBitCount = m_pBMI->bmiHeader.biWidth * m_pBMI->bmiHeader.biBitCount;
-		DWORD dwDataSize = (((dwBitCount + 31) / 32) * 4) * m_pBMI->bmiHeader.biHeight;
+		DWORD dwDataSize = CalculateDIBPitch(m_pBMI->bmiHeader.biWidth, m_pBMI->bmiHeader.biBitCount) * m_pBMI->bmiHeader.biHeight;
 
 		hdr.bfOffBits = sizeof(BITMAPFILEHEADER) + dwHeaderSize;
 		hdr.bfSize = hdr.bfOffBits + dwDataSize;
@@ -708,8 +691,7 @@ HGLOBAL CDIB::SaveToMemory() const
 {
 	DWORD dwHeaderSize = sizeof(BITMAPINFOHEADER) +
 		sizeof(RGBQUAD)*m_pBMI->bmiHeader.biClrUsed;
-	DWORD dwBitCount = m_pBMI->bmiHeader.biWidth * m_pBMI->bmiHeader.biBitCount;
-	DWORD dwDataSize = (((dwBitCount + 31) / 32) * 4) * m_pBMI->bmiHeader.biHeight;
+	DWORD dwDataSize = CalculateDIBPitch(m_pBMI->bmiHeader.biWidth, m_pBMI->bmiHeader.biBitCount) * m_pBMI->bmiHeader.biHeight;
 
 	HGLOBAL hData = ::GlobalAlloc(GMEM_MOVEABLE, dwHeaderSize + dwDataSize);
 	if (hData != NULL)
@@ -736,7 +718,7 @@ CLightweightDIB* CLightweightDIB::Create(CDIB* pSrc)
 		pDIB->m_pBMI = (LPBITMAPINFO)malloc(nSize);
 		memcpy(pDIB->m_pBMI, pSrc->m_pBMI, nSize);
 
-		int nRowLength = ((pDIB->m_pBMI->bmiHeader.biWidth * 24 + 31) & ~31) >> 3;
+		int nRowLength = CalculateDIBPitch(pDIB->m_pBMI->bmiHeader.biWidth, 24);
 		DWORD dwByteCount = nRowLength * pDIB->GetHeight();
 		pDIB->m_pBits = new BYTE[dwByteCount];
 		memcpy(pDIB->m_pBits, pSrc->m_pBits, dwByteCount);
@@ -751,8 +733,7 @@ CLightweightDIB* CLightweightDIB::Create(CDIB* pSrc)
 		return pDIB;
 	}
 
-	DWORD dwByteCount = pDIB->m_pBMI->bmiHeader.biWidth * pDIB->m_pBMI->bmiHeader.biBitCount;
-	dwByteCount = (((dwByteCount + 31) / 32) * 4) * pDIB->m_pBMI->bmiHeader.biHeight;
+	DWORD dwByteCount = CalculateDIBPitch(pDIB->m_pBMI->bmiHeader.biWidth, pDIB->m_pBMI->bmiHeader.biBitCount) * pDIB->GetHeight();
 
 	LPBYTE pBits = new BYTE[dwByteCount];
 	memcpy(pBits, pDIB->m_pBits, dwByteCount);
@@ -811,28 +792,16 @@ void FrameOval(CDC* pDC, const CRect& bounds, COLORREF color)
 
 void InvertOvalFrame(CDC* pDC, const CRect& bounds)
 {
-	CRect rcClip;
-	pDC->GetClipBox(rcClip);
-	if (!rcClip.IntersectRect(CRect(rcClip), bounds))
-		return;
+	int nOldROP = pDC->SetROP2(R2_NOT);
+	CPen penSolid(PS_SOLID, 1, RGB(0, 0, 0));
+	CPen* pOldPen = pDC->SelectObject(&penSolid);
+	CBrush* pOldBrush = (CBrush*)pDC->SelectStockObject(NULL_BRUSH);
 
-	COffscreenDC offscreenDC;
+	pDC->Ellipse(bounds);
 
-	offscreenDC.Create(pDC, rcClip.Size());
-	CDIB* pDIB = offscreenDC.GetDIB();
-	if (pDIB == NULL || pDIB->m_hObject == NULL)
-	{
-		offscreenDC.Release();
-		return;
-	}
-
-	offscreenDC.SetViewportOrg(-rcClip.TopLeft());
-	offscreenDC.FillSolidRect(rcClip, RGB(0, 0, 0));
-	FrameOval(&offscreenDC, bounds, RGB(255, 255, 255));
-
-	pDC->BitBlt(rcClip.left, rcClip.top, rcClip.Width(), rcClip.Height(),
-			&offscreenDC, rcClip.left, rcClip.top, SRCINVERT);
-	offscreenDC.Release();
+	pDC->SelectObject(pOldBrush);
+	pDC->SelectObject(pOldPen);
+	pDC->SetROP2(nOldROP);
 }
 
 void FramePoly(CDC* pDC, const POINT* points, int nCount, COLORREF color)
@@ -850,32 +819,14 @@ void InvertPolyFrame(CDC* pDC, const POINT* points, int nCount)
 	if (nCount < 2)
 		return;
 
-	CRect rcBounds = CRect(points[0], CSize(1, 1));
-	for (int i = 0; i < nCount; ++i)
-		rcBounds.UnionRect(CRect(rcBounds), CRect(points[i], CSize(1, 1)));
+	int nOldROP = pDC->SetROP2(R2_NOT);
+	CPen penSolid(PS_SOLID, 1, RGB(0, 0, 0));
+	CPen* pOldPen = pDC->SelectObject(&penSolid);
 
-	CRect rcClip;
-	pDC->GetClipBox(rcClip);
-	if (!rcClip.IntersectRect(CRect(rcClip), rcBounds))
-		return;
+	pDC->Polyline((POINT*)points, nCount);
 
-	COffscreenDC offscreenDC;
-
-	offscreenDC.Create(pDC, rcClip.Size());
-	CDIB* pDIB = offscreenDC.GetDIB();
-	if (pDIB == NULL || pDIB->m_hObject == NULL)
-	{
-		offscreenDC.Release();
-		return;
-	}
-
-	offscreenDC.SetViewportOrg(-rcClip.TopLeft());
-	offscreenDC.FillSolidRect(rcClip, RGB(0, 0, 0));
-	FramePoly(&offscreenDC, points, nCount, RGB(255, 255, 255));
-
-	pDC->BitBlt(rcClip.left, rcClip.top, rcClip.Width(), rcClip.Height(),
-			&offscreenDC, rcClip.left, rcClip.top, SRCINVERT);
-	offscreenDC.Release();
+	pDC->SelectObject(pOldPen);
+	pDC->SetROP2(nOldROP);
 }
 
 void DrawDottedLine(CDC* pDC, const CPoint& ptStart, const CPoint& ptEnd, COLORREF color)
@@ -922,7 +873,7 @@ void HighlightRect(CDC* pDC, const CRect& rect, COLORREF color, double fTranspar
 
 	COffscreenDC offscreenDC;
 
-	offscreenDC.Create(pDC, rcClip.Size());
+	offscreenDC.Create(pDC, rcClip.Size(), 24);
 	CDIB* pDIB = offscreenDC.GetDIB();
 	if (pDIB == NULL || pDIB->m_hObject == NULL)
 	{
@@ -934,19 +885,16 @@ void HighlightRect(CDC* pDC, const CRect& rect, COLORREF color, double fTranspar
 
 	offscreenDC.BitBlt(0, 0, rcClip.Width(), rcClip.Height(), pDC, rcClip.left, rcClip.top, SRCCOPY);
 
-	int nRowLength = pDIB->GetWidth()*3;
-	while (nRowLength % 4 != 0)
-		++nRowLength;
-
+	int nRowLength = CalculateDIBPitch(pDIB->GetWidth(), 24);
 	LPBYTE pBits = pDIB->GetBits();
 
 	BYTE tableRed[256], tableGreen[256], tableBlue[256];
 	for (int i = 0; i < 256; ++i)
-		tableRed[i] = tableGreen[i] = tableBlue[i] = i;
+		tableRed[i] = tableGreen[i] = tableBlue[i] = static_cast<BYTE>(i);
 
-	BuildTransparentcyTable(fTransparency, GetRValue(color), tableRed);
-	BuildTransparentcyTable(fTransparency, GetGValue(color), tableGreen);
-	BuildTransparentcyTable(fTransparency, GetBValue(color), tableBlue);
+	BuildTransparencyTable(fTransparency, GetRValue(color), tableRed);
+	BuildTransparencyTable(fTransparency, GetGValue(color), tableGreen);
+	BuildTransparencyTable(fTransparency, GetBValue(color), tableBlue);
 
 	for (int y = 0; y < rcClip.Height(); ++y, pBits += nRowLength)
 	{
@@ -982,8 +930,8 @@ void HighlightPolygon(CDC* pDC, const POINT* points, int nCount, COLORREF color,
 
 	COffscreenDC offscreenDC, maskDC;
 
-	offscreenDC.Create(pDC, rcClip.Size());
-	maskDC.Create(pDC, rcClip.Size());
+	offscreenDC.Create(pDC, rcClip.Size(), 24);
+	maskDC.Create(pDC, rcClip.Size(), 8);
 	CDIB* pDIB = offscreenDC.GetDIB();
 	CDIB* pMask = maskDC.GetDIB();
 	if (pDIB == NULL || pDIB->m_hObject == NULL ||
@@ -995,7 +943,7 @@ void HighlightPolygon(CDC* pDC, const POINT* points, int nCount, COLORREF color,
 	}
 
 	ASSERT(pDIB->GetBitsPerPixel() == 24);
-	ASSERT(pMask->GetBitsPerPixel() == 24);
+	ASSERT(pMask->GetBitsPerPixel() == 8);
 	offscreenDC.BitBlt(0, 0, rcClip.Width(), rcClip.Height(), pDC, rcClip.left, rcClip.top, SRCCOPY);
 
 	maskDC.SetViewportOrg(-rcClip.TopLeft());
@@ -1012,26 +960,25 @@ void HighlightPolygon(CDC* pDC, const POINT* points, int nCount, COLORREF color,
 	maskDC.SelectObject(pOldPen);
 	maskDC.SelectObject(pOldBrush);
 
-	int nRowLength = pDIB->GetWidth()*3;
-	while (nRowLength % 4 != 0)
-		++nRowLength;
+	int nRowLength = CalculateDIBPitch(pDIB->GetWidth(), 24);
+	int nMaskRowLength = CalculateDIBPitch(pMask->GetWidth(), 8);
 
 	LPBYTE pBits = pDIB->GetBits();
 	LPBYTE pMaskBits = pMask->GetBits();
 
 	BYTE tableRed[256], tableGreen[256], tableBlue[256];
 	for (int i = 0; i < 256; ++i)
-		tableRed[i] = tableGreen[i] = tableBlue[i] = i;
+		tableRed[i] = tableGreen[i] = tableBlue[i] = static_cast<BYTE>(i);
 
-	BuildTransparentcyTable(fTransparency, GetRValue(color), tableRed);
-	BuildTransparentcyTable(fTransparency, GetGValue(color), tableGreen);
-	BuildTransparentcyTable(fTransparency, GetBValue(color), tableBlue);
+	BuildTransparencyTable(fTransparency, GetRValue(color), tableRed);
+	BuildTransparencyTable(fTransparency, GetGValue(color), tableGreen);
+	BuildTransparencyTable(fTransparency, GetBValue(color), tableBlue);
 
-	for (int y = 0; y < rcClip.Height(); ++y, pBits += nRowLength, pMaskBits += nRowLength)
+	for (int y = 0; y < rcClip.Height(); ++y, pBits += nRowLength, pMaskBits += nMaskRowLength)
 	{
 		LPBYTE pPixel = pBits;
 		LPBYTE pMaskPixel = pMaskBits;
-		for (int x = 0; x < rcClip.Width(); ++x, pMaskPixel += 3)
+		for (int x = 0; x < rcClip.Width(); ++x, ++pMaskPixel)
 		{
 			if (*pMaskPixel == 0)
 			{
@@ -1125,15 +1072,15 @@ COffscreenDC::~COffscreenDC()
 	delete m_pBitmap;
 }
 
-bool COffscreenDC::Create(CDC* pDC, CSize size)
+bool COffscreenDC::Create(CDC* pDC, CSize size, int nBitCount)
 {
-	if (m_pBitmap == NULL || m_szBitmap.cx < size.cx || m_szBitmap.cy < size.cy)
+	if (m_pBitmap == NULL || m_szBitmap.cx < size.cx || m_szBitmap.cy < size.cy || m_pBitmap->GetBitsPerPixel() != nBitCount)
 	{
 		m_szBitmap.cx = max(m_szBitmap.cx, static_cast<int>(size.cx*1.1 + 0.5));
 		m_szBitmap.cy = max(m_szBitmap.cy, static_cast<int>(size.cy*1.1 + 0.5));
 
 		delete m_pBitmap;
-		m_pBitmap = CDIB::CreateDIB(m_szBitmap.cx, -m_szBitmap.cy, 24); // Top-down DIB
+		m_pBitmap = CDIB::CreateDIB(m_szBitmap.cx, -m_szBitmap.cy, nBitCount); // Top-down DIB
 	}
 
 	ASSERT(m_hDC == NULL);
@@ -1167,7 +1114,7 @@ void COffscreenDC::Release()
 
 CScreenDC::CScreenDC()
 {
-	CreateDC(_T("DISPLAY"), NULL, NULL, NULL);
+	CreateCompatibleDC(NULL);
 }
 
 
@@ -1211,7 +1158,7 @@ CRect FindContentRect(GP<DjVuImage> pImage)
 				pColors[i].rgbGreen == 0xff &&
 				pColors[i].rgbBlue == 0xff)
 			{
-				nWhite = i;
+				nWhite = static_cast<BYTE>(i);
 				bFound = true;
 				break;
 			}
@@ -1225,9 +1172,7 @@ CRect FindContentRect(GP<DjVuImage> pImage)
 		return rcResult;
 
 	LPBYTE pBits = pBmpPage->GetBits();
-	int nRowLength = szImage.cx*nPixelSize;
-	while ((nRowLength % 4) != 0)
-		++nRowLength;
+	int nRowLength = CalculateDIBPitch(szImage.cx, nPixelSize * 8);
 
 	// Top margin
 	for (; rcResult.top < rcResult.bottom; ++rcResult.top)
@@ -1240,7 +1185,7 @@ CRect FindContentRect(GP<DjVuImage> pImage)
 
 		if (pPixel < pEndPixel)
 		{
-			int nPixel = (pPixel - pBits - rcResult.top*nRowLength)/nPixelSize;
+			int nPixel = static_cast<int>(pPixel - pBits - rcResult.top*nRowLength)/nPixelSize;
 			rcResult.left = nPixel;
 			rcResult.right = nPixel + 1;
 			break;
@@ -1258,7 +1203,7 @@ CRect FindContentRect(GP<DjVuImage> pImage)
 
 		if (pPixel < pEndPixel)
 		{
-			int nPixel = (pPixel - pBits - (rcResult.bottom - 1)*nRowLength)/nPixelSize;
+			int nPixel = static_cast<int>(pPixel - pBits - (rcResult.bottom - 1)*nRowLength)/nPixelSize;
 			rcResult.left = min(rcResult.left, nPixel);
 			rcResult.right = max(rcResult.right, nPixel + 1);
 			break;
@@ -1281,20 +1226,21 @@ CRect FindContentRect(GP<DjVuImage> pImage)
 		while (pPixel < pEndPixel && *pPixel == nWhite)
 			++pPixel;
 
-		int nPixel = (pPixel - pBits - y*nRowLength)/nPixelSize;
+		int nPixel = static_cast<int>(pPixel - pBits - y*nRowLength)/nPixelSize;
 		rcResult.left = min(rcResult.left, nPixel);
 	}
 
 	// Right margin
 	for (y = rcResult.top; y < rcResult.bottom; ++y)
 	{
-		LPBYTE pPixel = pBits + y*nRowLength + nPixelSize*szImage.cx - 1;
-		LPBYTE pEndPixel = pBits + y*nRowLength + nPixelSize*rcResult.right;
+		LPBYTE pRowStart = pBits + y*nRowLength;
+		LPBYTE pPixel = pRowStart + nPixelSize*szImage.cx - 1;
+		LPBYTE pEndPixel = pRowStart + nPixelSize*rcResult.right;
 
 		while (pPixel >= pEndPixel && *pPixel == nWhite)
 			--pPixel;
 
-		int nPixel = (pPixel - pBits - y*nRowLength)/nPixelSize;
+		int nPixel = static_cast<int>(pPixel - pRowStart)/nPixelSize;
 		rcResult.right = max(rcResult.right, nPixel + 1);
 	}
 
@@ -1536,7 +1482,7 @@ unsigned int __stdcall PrintThreadProc(void* pvData)
 
 	CPrintSettings& printSettings = dlg.m_settings;
 
-	int nSheetCount = (int)dlg.m_arrPages.size();
+	int nSheetCount = static_cast<int>(dlg.m_arrPages.size());
 	if (nSheetCount == 0)
 	{
 		pProgress->StopProgress(0);
