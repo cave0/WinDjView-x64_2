@@ -260,7 +260,7 @@ void CDocPropertiesDlg::PopulateFiles()
 			m_listFiles.SetItemText(nIndex, 1, m_files[i].strName);
 			m_listFiles.SetItemText(nIndex, 2, m_files[i].strType);
 			m_listFiles.SetItemText(nIndex, 3, FormatString(_T("%d"), m_files[i].nSize));
-			m_listFiles.SetItemData(nIndex, (DWORD) &m_files[i]);
+			m_listFiles.SetItemData(nIndex, reinterpret_cast<DWORD_PTR>(&m_files[i]));
 		}
 
 		if (m_nSortBy == -1 || m_nSortBy == 0)
@@ -298,7 +298,7 @@ void CDocPropertiesDlg::PopulateFiles()
 			int nIndex = m_listFiles.InsertItem(m_files[i].nPageIndex, FormatString(_T("%d"), m_files[i].nPageIndex + 1));
 			m_listFiles.SetItemText(nIndex, 1, m_files[i].strName);
 			m_listFiles.SetItemText(nIndex, 2, FormatString(_T("%d"), m_files[i].nSize));
-			m_listFiles.SetItemData(nIndex, (DWORD) &m_files[i]);
+			m_listFiles.SetItemData(nIndex, reinterpret_cast<DWORD_PTR>(&m_files[i]));
 		}
 
 		if (m_nSortBy == -1 || m_nSortBy == 1 || m_nSortBy == 3)
@@ -390,5 +390,5 @@ int CALLBACK CDocPropertiesDlg::CompareFiles(LPARAM lParam1, LPARAM lParam2, LPA
 
 void CDocPropertiesDlg::OnStnClickedStaticPath()
 {
-		AfxMessageBox(_T(" ") + m_strDocFullName, MB_OK | MB_ICONINFORMATION);
+	AfxMessageBox(_T(" ") + m_strDocFullName, MB_OK | MB_ICONINFORMATION);
 }
