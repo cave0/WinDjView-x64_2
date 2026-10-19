@@ -201,26 +201,59 @@ CDIB* CRenderThread::Render(Job& job)
 	if (pImage != NULL)
 	{
 		if (job.size.cx > 0 && job.size.cy > 0)
-		{ 
+		{
 			PageInfo& pInfo = m_pSource->GetPageInfo(job.nPage);
 			CSize szPage(pInfo.szPage);
 			if (job.nRotate % 2 != 0)
 				swap(szPage.cx, szPage.cy);
 			CRect rcCrop = pInfo.GetCropRect((job.nRotate + pInfo.nInitialRotate) % 4);
-			int nX = rcCrop.left + rcCrop.right;
-			int nY = rcCrop.bottom + rcCrop.top;
-			double fScaleX = job.displaySettings.bCropPages ? 1.0 * job.size.cx / szPage.cx : 0;
-			double fScaleY = job.displaySettings.bCropPages ? 1.0 * job.size.cy / szPage.cy : 0;
-			CPoint pt = CPoint(nX * fScaleX, nY * fScaleY);
+			const bool bHasCrop = job.displaySettings.bCropPages &&
+				(rcCrop.left != 0 || rcCrop.top != 0 ||
+				 rcCrop.right != szPage.cx || rcCrop.bottom != szPage.cy);
 
-			pBitmap = Render(pImage, job.size + pt, job.displaySettings, job.nDisplayMode, job.nRotate);
-			if (job.displaySettings.bCropPages && (nX + nY > 1))
-			{		
-				CRect rcCrop2 = CRect(rcCrop.left * fScaleX, rcCrop.top * fScaleY,
-					rcCrop.left * fScaleX + job.size.cx, rcCrop.top * fScaleY + job.size.cy);
-				CDIB* pCropped = pBitmap->Crop(rcCrop2);
-				delete pBitmap;
-				pBitmap = pCropped;
+			if (!bHasCrop)
+			{
+				pBitmap = Render(pImage, job.size, job.displaySettings, job.nDisplayMode, job.nRotate);
+			}
+			else
+			{
+				// Avoid the expensive "render oversized full page, then crop" path when the crop
+				// rect already covers the entire page; the full-page render is identical to the
+				// final output and does not need an extra bitmap copy.
+				const CRect rcPage(0, 0, szPage.cx, szPage.cy);
+				if (rcCrop == rcPage)
+				{
+					pBitmap = Render(pImage, job.size, job.displaySettings, job.nDisplayMode, job.nRotate);
+				}
+				else
+				{
+					const double fScaleX = 1.0 * job.size.cx / szPage.cx;
+					const double fScaleY = 1.0 * job.size.cy / szPage.cy;
+					const CPoint pt = CPoint(
+						static_cast<int>(rcCrop.left * fScaleX + 0.5),
+						static_cast<int>(rcCrop.top * fScaleY + 0.5));
+					const CSize szScaledCrop(
+						max(1, static_cast<int>((rcCrop.Width() * fScaleX) + 0.5)),
+						max(1, static_cast<int>((rcCrop.Height() * fScaleY) + 0.5)));
+
+					const CSize szRender = szScaledCrop + pt;
+					pBitmap = Render(pImage, szRender, job.displaySettings, job.nDisplayMode, job.nRotate);
+
+					CRect rcCrop2 = CRect(
+						static_cast<int>(rcCrop.left * fScaleX + 0.5),
+						static_cast<int>(rcCrop.top * fScaleY + 0.5),
+						static_cast<int>((rcCrop.right * fScaleX) + 0.5),
+						static_cast<int>((rcCrop.bottom * fScaleY) + 0.5));
+					if (!rcCrop2.IsRectEmpty() && rcCrop2 != CRect(0, 0, job.size.cx, job.size.cy))
+					{
+						CDIB* pCropped = pBitmap->Crop(rcCrop2);
+						if (pCropped != NULL)
+						{
+							delete pBitmap;
+							pBitmap = pCropped;
+						}
+					}
+				}
 			}
 		}
 	}
