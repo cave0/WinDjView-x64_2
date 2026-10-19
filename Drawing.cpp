@@ -714,14 +714,15 @@ CLightweightDIB* CLightweightDIB::Create(CDIB* pSrc)
 	ASSERT(pSrc != NULL);
 	if (pSrc->GetBitsPerPixel() == 24)
 	{
-		UINT nSize = sizeof(BITMAPINFOHEADER) + sizeof(RGBQUAD) * pSrc->m_pBMI->bmiHeader.biClrUsed;
+		const BITMAPINFO* pSrcBMI = pSrc->GetBitmapInfo();
+		UINT nSize = sizeof(BITMAPINFOHEADER) + sizeof(RGBQUAD) * pSrc->GetColorCount();
 		pDIB->m_pBMI = (LPBITMAPINFO)malloc(nSize);
-		memcpy(pDIB->m_pBMI, pSrc->m_pBMI, nSize);
+		memcpy(pDIB->m_pBMI, pSrcBMI, nSize);
 
-		int nRowLength = CalculateDIBPitch(pDIB->m_pBMI->bmiHeader.biWidth, 24);
+		int nRowLength = CalculateDIBPitch(pDIB->GetWidth(), 24);
 		DWORD dwByteCount = nRowLength * pDIB->GetHeight();
 		pDIB->m_pBits = new BYTE[dwByteCount];
-		memcpy(pDIB->m_pBits, pSrc->m_pBits, dwByteCount);
+		memcpy(pDIB->m_pBits, pSrc->GetBits(), dwByteCount);
 		return pDIB;
 	}
 
@@ -733,7 +734,7 @@ CLightweightDIB* CLightweightDIB::Create(CDIB* pSrc)
 		return pDIB;
 	}
 
-	DWORD dwByteCount = CalculateDIBPitch(pDIB->m_pBMI->bmiHeader.biWidth, pDIB->m_pBMI->bmiHeader.biBitCount) * pDIB->GetHeight();
+	DWORD dwByteCount = CalculateDIBPitch(pDIB->GetWidth(), pDIB->GetBitsPerPixel()) * pDIB->GetHeight();
 
 	LPBYTE pBits = new BYTE[dwByteCount];
 	memcpy(pBits, pDIB->m_pBits, dwByteCount);
