@@ -752,43 +752,23 @@ ZPCodec::Decode::init(void)
   scount = 0;
   preload();
   /* Compute initial fence */
-  fence = code;
-  if (code >= 0x8000)
-    fence = 0x7fff;
+  fence = (code < 0x8000) ? code : 0x7fff;
 }
 
 
 void
 ZPCodec::preload(void)
 {
-  while (scount <= 24)
+  while (scount<=24)
     {
-      const int needed = (32 - scount) >> 3;
-      unsigned char tmp[4];
-      const int n = bs->read((void*)tmp, needed);
-
-      if (n > 0)
+      if (bs->read((void*)&byte, 1) < 1) 
         {
-          for (int i = 0; i < n; ++i)
-            {
-              buffer = (buffer << 8) | tmp[i];
-              scount += 8;
-            }
+          byte = 0xff;
+          if (--delay < 1)
+            G_THROW( ByteStream::EndOfFile );
         }
-
-      // Handle EOF padding if fewer bytes were returned
-      if (n < needed)
-        {
-          const int missing = needed - (n > 0 ? n : 0);
-          for (int i = 0; i < missing; ++i)
-            {
-              byte = 0xff;
-              if (--delay < 1)
-                G_THROW(ByteStream::EndOfFile);
-              buffer = (buffer << 8) | 0xff;
-              scount += 8;
-            }
-        }
+      buffer = (buffer<<8) | byte;
+      scount += 8;
     }
 }
 
@@ -845,10 +825,8 @@ ZPCodec::decode_sub(BitContext &ctx, unsigned int z)
       bitcount += shift;
 #endif
       if (scount<16) preload();
-      /* Adjust fence */
-      fence = code;
-      if (code >= 0x8000)
-        fence = 0x7fff;
+      /* Adjust fence (branchless cmov) */
+      fence = (code < 0x8000) ? code : 0x7fff;
       return bit ^ 1;
     }
   else
@@ -864,10 +842,8 @@ ZPCodec::decode_sub(BitContext &ctx, unsigned int z)
       bitcount += 1;
 #endif
       if (scount<16) preload();
-      /* Adjust fence */
-      fence = code;
-      if (code >= 0x8000)
-        fence = 0x7fff;
+      /* Adjust fence (branchless cmov) */
+      fence = (code < 0x8000) ? code : 0x7fff;
       return bit;
     }
 }
@@ -892,10 +868,8 @@ ZPCodec::decode_sub_simple(int mps, unsigned int z)
       bitcount += shift;
 #endif
       if (scount<16) preload();
-      /* Adjust fence */
-      fence = code;
-      if (code >= 0x8000)
-        fence = 0x7fff;
+      /* Adjust fence (branchless cmov) */
+      fence = (code < 0x8000) ? code : 0x7fff;
       return mps ^ 1;
     }
   else
@@ -908,10 +882,8 @@ ZPCodec::decode_sub_simple(int mps, unsigned int z)
       bitcount += 1;
 #endif
       if (scount<16) preload();
-      /* Adjust fence */
-      fence = code;
-      if (code >= 0x8000)
-        fence = 0x7fff;
+      /* Adjust fence (branchless cmov) */
+      fence = (code < 0x8000) ? code : 0x7fff;
       return mps;
     }
 }
@@ -945,10 +917,8 @@ ZPCodec::decode_sub_nolearn(int mps, unsigned int z)
       bitcount += shift;
 #endif
       if (scount<16) preload();
-      /* Adjust fence */
-      fence = code;
-      if (code >= 0x8000)
-        fence = 0x7fff;
+      /* Adjust fence (branchless cmov) */
+      fence = (code < 0x8000) ? code : 0x7fff;
       return mps ^ 1;
     }
   else
@@ -961,10 +931,8 @@ ZPCodec::decode_sub_nolearn(int mps, unsigned int z)
       bitcount += 1;
 #endif
       if (scount<16) preload();
-      /* Adjust fence */
-      fence = code;
-      if (code >= 0x8000)
-        fence = 0x7fff;
+      /* Adjust fence (branchless cmov) */
+      fence = (code < 0x8000) ? code : 0x7fff;
       return mps;
     }
 }
