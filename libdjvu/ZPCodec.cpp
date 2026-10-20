@@ -73,6 +73,9 @@
 #include <math.h>
 #include <stdio.h>
 
+#if defined(_MSC_VER)
+# include <intrin.h>
+#endif
 
 #ifdef HAVE_NAMESPACES
 namespace DJVU {
@@ -758,16 +761,34 @@ ZPCodec::Decode::init(void)
 void
 ZPCodec::preload(void)
 {
-  while (scount<=24)
+  while (scount <= 24)
     {
-      if (bs->read((void*)&byte, 1) < 1) 
+      const int needed = (32 - scount) >> 3;
+      unsigned char tmp[4];
+      const int n = bs->read((void*)tmp, needed);
+
+      if (n > 0)
         {
-          byte = 0xff;
-          if (--delay < 1)
-            G_THROW( ByteStream::EndOfFile );
+          for (int i = 0; i < n; ++i)
+            {
+              buffer = (buffer << 8) | tmp[i];
+              scount += 8;
+            }
         }
-      buffer = (buffer<<8) | byte;
-      scount += 8;
+
+      // Handle EOF padding if fewer bytes were returned
+      if (n < needed)
+        {
+          const int missing = needed - (n > 0 ? n : 0);
+          for (int i = 0; i < missing; ++i)
+            {
+              byte = 0xff;
+              if (--delay < 1)
+                G_THROW(ByteStream::EndOfFile);
+              buffer = (buffer << 8) | 0xff;
+              scount += 8;
+            }
+        }
     }
 }
 
@@ -775,29 +796,18 @@ ZPCodec::preload(void)
 inline int
 ZPCodec::ffz(unsigned int x)
 {
-  // DO NOT DEFINE FASTBSR : 
-  // Test shows that it hardly helps on a PPro,
-  // and rumors are that BSR is very slow on PPlain.
-#if defined(FASTBSR) && defined(_MSC_VER) && defined(_M_IX86)
-  int r;
-  __asm  { 
-        mov  ebx, x
-        xor  ebx, 0xffff
-        mov  eax, -1
-        bsr  eax, ebx
-        mov  r, eax
-  }
-  return 15 - r;
-#elif defined(FASTBSR) && defined(__GNUC__) && defined(__i386__)
-  int r, dummy;
-  __asm__ const ( "movl %2,%1\n\t"
-                  "xorl $0xffff, %1\n\t"
-                  "movl $-1, %0\n\t"
-                  "bsrl %1, %0"
-                  : "=&q" (r), "=q" (dummy) : "rm" (x) );
-  return 15 - r;
+#if defined(_MSC_VER)
+  // Fast 3-cycle hardware bit-scan on modern x86/x64
+  unsigned long idx;
+  if (_BitScanReverse(&idx, (unsigned short)~x))
+    return 15 - (int)idx;
+  return 16;
+#elif defined(__GNUC__) || defined(__clang__)
+  unsigned int inv = (unsigned short)~x;
+  return inv ? (__builtin_clz(inv) - 16) : 16;
 #else
-  return (x>=0xff00) ? (ffzt[x&0xff]+8) : (ffzt[(x>>8)&0xff]);
+  // Fallback table lookup
+  return (x >= 0xff00) ? (ffzt[x & 0xff] + 8) : (ffzt[(x >> 8) & 0xff]);
 #endif
 }
 
