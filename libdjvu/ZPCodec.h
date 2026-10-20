@@ -67,6 +67,16 @@
 
 #include "GContainer.h"
 
+#if defined(_MSC_VER)
+# include <intrin.h>
+# define ZP_FORCEINLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+# define ZP_FORCEINLINE inline __attribute__((always_inline))
+#else
+# define ZP_FORCEINLINE inline
+#endif
+
+
 #ifdef HAVE_NAMESPACES
 namespace DJVU {
 # ifdef NOT_DEFINED // Just to fool emacs c++ mode
@@ -352,44 +362,47 @@ private:
 };
 
 
-
-
-
-
 // INLINE CODE
 
-inline void 
+ZP_FORCEINLINE void 
 ZPCodec::encoder(int bit, BitContext &ctx) 
 {
   unsigned int z = a + p[ctx];
-  if (bit != (ctx & 1))
-  {
-    encode_lps(ctx, z);
-  }else if (z >= 0x8000)
-  {
-    encode_mps(ctx, z);
-  }else
-  {
-    a = z;
-  }
+  // Fast path: MPS bit without interval overflow
+  if (bit == (ctx & 1))
+    {
+      if (z < 0x8000)
+        {
+          a = z;
+          return;
+        }
+      encode_mps(ctx, z);
+    }
+  else
+    {
+      encode_lps(ctx, z);
+    }
 }
 
-inline int
+ZP_FORCEINLINE int
 ZPCodec::IWdecoder(void)
 {
-  return decode_sub_simple(0,0x8000 + ((a+a+a) >> 3));
+  return decode_sub_simple(0, 0x8000 + ((a + a + a) >> 3));
 }
 
-inline int
+ZP_FORCEINLINE int
 ZPCodec::decoder(BitContext &ctx) 
 {
   unsigned int z = a + p[ctx];
   if (z <= fence) 
-    { a = z; return (ctx&1); } 
+    { 
+      a = z; 
+      return (ctx & 1); 
+    } 
   return decode_sub(ctx, z);
 }
 
-inline void 
+ZP_FORCEINLINE void 
 ZPCodec::encoder_nolearn(int bit, BitContext &ctx) 
 {
   unsigned int z = a + p[ctx];
@@ -401,42 +414,43 @@ ZPCodec::encoder_nolearn(int bit, BitContext &ctx)
     a = z;
 }
 
-inline int
+ZP_FORCEINLINE int
 ZPCodec::decoder_nolearn(BitContext &ctx) 
 {
   unsigned int z = a + p[ctx];
   if (z <= fence) 
-    { a = z; return (ctx&1); } 
-  return decode_sub_nolearn( (ctx&1), z);
+    { 
+      a = z; 
+      return (ctx & 1); 
+    } 
+  return decode_sub_nolearn((ctx & 1), z);
 }
 
-inline void 
+ZP_FORCEINLINE void 
 ZPCodec::encoder(int bit)
 {
   if (bit)
-    encode_lps_simple(0x8000 + (a>>1));
+    encode_lps_simple(0x8000 + (a >> 1));
   else
-    encode_mps_simple(0x8000 + (a>>1));
+    encode_mps_simple(0x8000 + (a >> 1));
 }
 
-inline int
+ZP_FORCEINLINE int
 ZPCodec::decoder(void)
 {
-  return decode_sub_simple(0, 0x8000 + (a>>1));
+  return decode_sub_simple(0, 0x8000 + (a >> 1));
 }
 
-inline void
+ZP_FORCEINLINE void
 ZPCodec::IWencoder(const bool bit)
 {
-  const int z = 0x8000 + ((a+a+a) >> 3);
+  const int z = 0x8000 + ((a + a + a) >> 3);
   if (bit)
-  {
     encode_lps_simple(z);
-  }else
-  {
+  else
     encode_mps_simple(z);
-  }
 }
+
 
 // ------------ ADDITIONAL DOCUMENTATION
 
