@@ -328,7 +328,7 @@ lt_XMLTags::get_Tags(char const tagname[]) const
 void
 lt_XMLTags::get_Maps(char const tagname[],
                      char const argn[],
-                     GPList<lt_XMLTags> list,
+                     const GPList<lt_XMLTags> &list,
                      GMap<GUTF8String, GP<lt_XMLTags> > &map)
 {
   for(GPosition pos=list;pos;++pos)
