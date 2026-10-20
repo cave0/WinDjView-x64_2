@@ -68,6 +68,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <math.h>
+#include <algorithm>
 
 
 #ifdef HAVE_NAMESPACES
@@ -212,16 +213,16 @@ DjVuPalette::rcomp (const void *a, const void *b)
 int
 DjVuPalette::lcomp (const void *a, const void *b)
 {
-  unsigned char *aa = ((PColor*)a)->p;
-  unsigned char *bb = ((PColor*)b)->p;
+  const unsigned char *aa = ((const PColor*)a)->p;
+  const unsigned char *bb = ((const PColor*)b)->p;
   if (aa[3] != bb[3])
-    return aa[3]-bb[3];
+    return (int)aa[3] - (int)bb[3];
   else if (aa[2] != bb[2])
-    return aa[2]-bb[2];
+    return (int)aa[2] - (int)bb[2];
   else if (aa[1] != bb[1])
-    return aa[1]=bb[1];
+    return (int)aa[1] - (int)bb[1];
   else
-    return aa[0]-bb[0];
+    return (int)aa[0] - (int)bb[0];
 }
 
 int
@@ -296,11 +297,17 @@ DjVuPalette::compute_palette(int maxcolors, int minboxsize)
       if (splitbox.boxsize <= minboxsize)
         continue;
       if (gl == splitbox.boxsize)
-        qsort(splitbox.data, splitbox.colors, sizeof(PData), gcomp);
+        std::sort(splitbox.data, splitbox.data + splitbox.colors, [](const PData &a, const PData &b) {
+          return a.p[1] < b.p[1];
+        });
       else if (rl == splitbox.boxsize)
-        qsort(splitbox.data, splitbox.colors, sizeof(PData), rcomp);
+        std::sort(splitbox.data, splitbox.data + splitbox.colors, [](const PData &a, const PData &b) {
+          return a.p[2] < b.p[2];
+        });
       else
-        qsort(splitbox.data, splitbox.colors, sizeof(PData), bcomp);
+        std::sort(splitbox.data, splitbox.data + splitbox.colors, [](const PData &a, const PData &b) {
+          return a.p[0] < b.p[0];
+        });
       // Find median
       int lowercolors = 0;
       int lowersum = 0;
@@ -351,8 +358,13 @@ DjVuPalette::compute_palette(int maxcolors, int minboxsize)
   }
   // Save dominant color
   PColor dcolor = palette[0];
-  // Sort palette colors in luminance order
-  qsort((PColor*)palette, ncolors, sizeof(PColor), lcomp);
+  // Sort palette colors in luminance order using inlined functor
+  std::sort((PColor*)palette, (PColor*)palette + ncolors, [](const PColor &a, const PColor &b) {
+    if (a.p[3] != b.p[3]) return a.p[3] < b.p[3];
+    if (a.p[2] != b.p[2]) return a.p[2] < b.p[2];
+    if (a.p[1] != b.p[1]) return a.p[1] < b.p[1];
+    return a.p[0] < b.p[0];
+  });
   // Clear invalid data
   colordata.empty();
   delete pmap;
@@ -399,31 +411,35 @@ DjVuPalette::allocate_pmap()
 int 
 DjVuPalette::color_to_index_slow(const unsigned char *bgr)
 {
-  PColor *pal = palette;
+  const PColor *pal = (const PColor*)palette;
   const int ncolors = palette.size();
   if (! ncolors)
     G_THROW( ERR_MSG("DjVuPalette.not_init") );
-  // Should be able to do better
   int found = 0;
   int founddist = 3*256*256;
+  const int b = bgr[0];
+  const int g = bgr[1];
+  const int r = bgr[2];
   { // extra nesting for windows
     for (int i=0; i<ncolors; i++)
     {
-      int bd = bgr[0] - pal[i].p[0];
-      int gd = bgr[1] - pal[i].p[1];
-      int rd = bgr[2] - pal[i].p[2];
+      int bd = b - pal[i].p[0];
+      int gd = g - pal[i].p[1];
+      int rd = r - pal[i].p[2];
       int dist = (bd*bd)+(gd*gd)+(rd*rd);
       if (dist < founddist)
         {
           found = i;
           founddist = dist;
+          if (dist == 0)
+            break; // Immediate exit on exact match
         }
     }
   }
   // Store in pmap
   if (pmap && pmap->size()<0x8000)
     {
-      int key = (bgr[0]<<16)|(bgr[1]<<8)|(bgr[2]);
+      int key = (b<<16)|(g<<8)|r;
       (*pmap)[key] = found;
     }
   // Return
