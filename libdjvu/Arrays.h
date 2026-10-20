@@ -570,47 +570,70 @@ ArrayBaseT<TYPE>::sort(int lo, int hi)
 {
    if (hi <= lo)
       return;
-      // Test for insertion sort (optimize!)
-   if (hi <= lo + 20)
+   check();
+   ArrayRep * rep = (ArrayRep *) get();
+   if (lo < rep->lobound || hi > rep->hibound)
+      G_THROW( ERR_MSG("arrays.ill_sub") );
+
+   TYPE * const base = &((TYPE *) rep->data)[-rep->minlo];
+
+   while (hi > lo)
    {
-      for (int i=lo+1; i<=hi; i++)
+      // Test for insertion sort for small partitions
+      if (hi <= lo + 20)
       {
-	 int j = i;
-	 TYPE tmp = (*this)[i];
-	 while ((--j>=lo) && !((*this)[j]<=tmp))
-            (*this)[j+1] = (*this)[j];
-	 (*this)[j+1] = tmp;
+         for (int i = lo + 1; i <= hi; ++i)
+         {
+            int j = i;
+            TYPE tmp = base[i];
+            while ((--j >= lo) && !(base[j] <= tmp))
+               base[j + 1] = base[j];
+            base[j + 1] = tmp;
+         }
+         return;
       }
-      return;
-   }
-      // -- determine suitable quick-sort pivot
-   TYPE tmp = (*this)[lo];
-   TYPE pivot = (*this)[(lo+hi)/2];
-   if (pivot <= tmp)
-   { tmp = pivot; pivot=(*this)[lo]; }
-   if ((*this)[hi] <= tmp)
-   { pivot = tmp; }
-   else if ((*this)[hi] <= pivot)
-   { pivot = (*this)[hi]; }
-      // -- partition set
-   int h = hi;
-   int l = lo;
-   while (l < h)
-   {
-      while (! (pivot <= (*this)[l])) l++;
-      while (! ((*this)[h] <= pivot)) h--;
-      if (l < h)
+
+      // Median-of-three pivot selection
+      TYPE tmp = base[lo];
+      TYPE pivot = base[(lo + hi) / 2];
+      if (pivot <= tmp)
+      { tmp = pivot; pivot = base[lo]; }
+      if (base[hi] <= tmp)
+      { pivot = tmp; }
+      else if (base[hi] <= pivot)
+      { pivot = base[hi]; }
+
+      // Partition set
+      int h = hi;
+      int l = lo;
+      while (l < h)
       {
-	 tmp = (*this)[l];
-	 (*this)[l] = (*this)[h];
-	 (*this)[h] = tmp;
-	 l = l+1;
-	 h = h-1;
+         while (!(pivot <= base[l])) l++;
+         while (!(base[h] <= pivot)) h--;
+         if (l < h)
+         {
+            tmp = base[l];
+            base[l] = base[h];
+            base[h] = tmp;
+            l = l + 1;
+            h = h - 1;
+         }
+      }
+
+      // Tail-recursion elimination: recurse on the smaller half to guarantee O(log N) stack depth
+      if (h - lo < hi - l)
+      {
+         if (lo < h)
+            sort(lo, h);
+         lo = l;
+      }
+      else
+      {
+         if (l < hi)
+            sort(l, hi);
+         hi = h;
       }
    }
-      // -- recursively restart
-   sort(lo, h);
-   sort(l, hi);
 }
 
 /** Dynamic array for simple types.  
@@ -664,6 +687,8 @@ TArray<TYPE>::destroy(void * data, int lo, int hi)
 template <class TYPE> void
 TArray<TYPE>::init1(void * data, int lo, int hi)
 {
+   if (data && hi >= lo)
+      memset((void *) &((TYPE *) data)[lo], 0, (hi - lo + 1) * sizeof(TYPE));
 }
 
 template <class TYPE> void
