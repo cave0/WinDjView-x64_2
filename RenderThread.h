@@ -20,9 +20,9 @@
 
 #include "Global.h"
 #include "DjVuView.h"
+
 class DjVuSource;
 class CDIB;
-
 
 class CRenderThread
 {
@@ -37,25 +37,26 @@ public:
 	void AddCleanupJob(int nPage);
 	void RemoveAllJobs();
 
+	// Supports optional cooperative cancellation probe for responsive aborts
 	static CDIB* Render(GP<DjVuImage> pImage, const CSize& size,
 		const CDisplaySettings& displaySettings, int nDisplayMode,
-		int nRotate, bool bThumbnail = false);
+		int nRotate, bool bThumbnail = false, const volatile bool* pbAbort = NULL);
 
 	void PauseJobs();
 	void ResumeJobs();
-	bool IsPaused();
+	bool IsPaused() const;
 
 	void RejectCurrentJob();
 
 private:
-	HANDLE m_hThread, m_hStopThread;
+	HANDLE m_hThread;
 	CCriticalSection m_lock;
 	CCriticalSection m_stopping;
 	CEvent m_stop;
 	CEvent m_jobReady;
 	Observer* m_pOwner;
 	DjVuSource* m_pSource;
-	long m_nPaused;
+	volatile LONG m_nPaused;
 
 	enum JobType { RENDER, DECODE, READINFO, CLEANUP };
 
@@ -68,10 +69,11 @@ private:
 		CSize size;
 		JobType type;
 	};
+
 	list<Job> m_jobs;
 	vector<list<Job>::iterator> m_pages;
 	Job m_currentJob;
-	bool m_bRejectCurrentJob;
+	volatile bool m_bRejectCurrentJob;
 
 	static unsigned int __stdcall RenderThreadProc(void* pvData);
 	CDIB* Render(Job& job);
