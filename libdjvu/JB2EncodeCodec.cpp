@@ -295,54 +295,74 @@ JB2Dict::JB2Codec::Encode::code_relative_mark_size(GBitmap &bm, int cw, int ch, 
 
 void 
 JB2Dict::JB2Codec::Encode::code_bitmap_directly(
-  GBitmap &bm,const int dw, int dy,
-  unsigned char *up2, unsigned char *up1, unsigned char *up0 )
+  GBitmap &bm, const int dw, int dy,
+  unsigned char *up2, unsigned char *up1, unsigned char *up0)
 {
-      ZPCodec &zp=*gzp;
-      // iterate on rows (encoding)
+      ZPCodec &zp = *gzp;
       while (dy >= 0)
         {
-          int context=get_direct_context(up2, up1, up0, 0);
-          for (int dx=0;dx < dw;)
+          int context = get_direct_context(up2, up1, up0, 0);
+          const unsigned char *p0 = up0;
+          const unsigned char *p1 = up1 + 3;
+          const unsigned char *p2 = up2 + 2;
+
+          for (int dx = 0; dx < dw; ++dx)
             {
-              int n = up0[dx++];
+              const int n = *p0++;
               zp.encoder(n, bitdist[context]);
-              context=shift_direct_context(context, n, up2, up1, up0, dx);
+              context = ((context << 1) & 0x37a) |
+                        (*p1++ << 2) |
+                        (*p2++ << 7) |
+                        n;
             }
           // next row
-          dy -= 1;
+          --dy;
           up2 = up1;
           up1 = up0;
-          up0 = bm[dy];
+          if (dy >= 0)
+            up0 = bm[dy];
         }
 }
 
 // CODE BITMAP BY CROSS CODING
 
 void 
-JB2Dict::JB2Codec::Encode::code_bitmap_by_cross_coding (GBitmap &bm, GBitmap &cbm,
+JB2Dict::JB2Codec::Encode::code_bitmap_by_cross_coding(GBitmap &bm, GBitmap &cbm,
   const int xd2c, const int dw, int dy, int cy,
   unsigned char *up1, unsigned char *up0, unsigned char *xup1, 
-  unsigned char *xup0, unsigned char *xdn1 )
+  unsigned char *xup0, unsigned char *xdn1)
 {
-      ZPCodec &zp=*gzp;
-      // iterate on rows (encoding)
+      ZPCodec &zp = *gzp;
       while (dy >= 0)
         {
-          int context=get_cross_context(up1, up0, xup1, xup0, xdn1, 0);
-          for(int dx=0;dx < dw;)
+          int context = get_cross_context(up1, up0, xup1, xup0, xdn1, 0);
+          const unsigned char *p0 = up0;
+          const unsigned char *pup1  = up1  + 2;
+          const unsigned char *pxup1 = xup1 + 1;
+          const unsigned char *pxup0 = xup0 + 2;
+          const unsigned char *pxdn1 = xdn1 + 2;
+
+          for (int dx = 0; dx < dw; ++dx)
             {
-              const int n = up0[dx++];
+              const int n = *p0++;
               zp.encoder(n, cbitdist[context]);
-              context=shift_cross_context(context, n,  
-                                  up1, up0, xup1, xup0, xdn1, dx);
+              context = ((context << 1) & 0x636) |
+                        (*pup1++  << 8) |
+                        (*pxup1++ << 6) |
+                        (*pxup0++ << 3) |
+                        (*pxdn1++ << 0) |
+                        (n << 7);
             }
           // next row
           up1 = up0;
-          up0 = bm[--dy];
+          --dy;
+          if (dy >= 0)
+            up0 = bm[dy];
           xup1 = xup0;
           xup0 = xdn1;
-          xdn1 = cbm[(--cy)-1] + xd2c;
+          --cy;
+          if (cy > 0)
+            xdn1 = cbm[cy - 1] + xd2c;
         }
 }
 
@@ -536,10 +556,11 @@ JB2Dict::JB2Codec::Encode::encode_libonly_shape(
   // Test that library shape must be encoded
   if (shape2lib[shapeno] < 0)
     {
-      // Code library entry
-      int rectype=(jshp.parent >= 0)
-            ?NEW_MARK_LIBRARY_ONLY:MATCHED_REFINE_LIBRARY_ONLY;
-      code_record(rectype, gjim, &jshp, 0);      
+			// Code library entry (matched refine if parent exists, else new mark)
+      int rectype = (jshp.parent >= 0)
+            ? MATCHED_REFINE_LIBRARY_ONLY : NEW_MARK_LIBRARY_ONLY;
+      code_record(rectype, gjim, &jshp, 0);
+			
       // Add shape to library
       add_library(shapeno, jshp);
       // Check numcoder status
