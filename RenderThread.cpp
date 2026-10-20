@@ -447,20 +447,22 @@ CDIB* CRenderThread::Render(GP<DjVuImage> pImage, const CSize& size,
 				if (pbAbort != NULL && *pbAbort)
 					return NULL;
 
+				// RescalePnm_subpix takes GP<GBitmap> and returns GP<GPixmap>
 				pGPixmap = RescalePnm_subpix(pGBitmap, size.cx, size.cy);
 			}
 			else
 			{
+				// RescalePnm takes GP<GBitmap> and returns GP<GBitmap>
 				if (nTotalRotate % 2 != 0)
-					pGPixmap = RescalePnm(pGBitmap, size.cy, size.cx);
+					pGBitmap = RescalePnm(pGBitmap, size.cy, size.cx);
 				else
-					pGPixmap = RescalePnm(pGBitmap, size.cx, size.cy);
+					pGBitmap = RescalePnm(pGBitmap, size.cx, size.cy);
 
 				if (pbAbort != NULL && *pbAbort)
 					return NULL;
 
-				if (nTotalRotate != 0 && pGPixmap != NULL)
-					pGPixmap = pGPixmap->rotate(nTotalRotate);
+				if (nTotalRotate != 0 && pGBitmap != NULL)
+					pGBitmap = pGBitmap->rotate(nTotalRotate);
 			}
 		}
 		else
