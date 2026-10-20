@@ -90,7 +90,7 @@ namespace DJVU {
 //// DJVUIMAGE: CONSTRUCTION
 
 DjVuImage::DjVuImage(void) 
-: rotate_count(-1),relayout_sent(false)
+: rotate_count(-1),relayout_sent(false),cached_tagfgpm(0),cached_nfg(0)
 {
 }
 
@@ -125,7 +125,7 @@ DjVuImage::get_info(const GP<DjVuFile> & file) const
       {
         if(rotate_count<0)
         {
-          const_cast<DjVuImage *>(this)->init_rotate(*(file->info));
+          const_cast<DjVuImage *>(this)->init_rotate(*info);
         }
         return info;
       }
@@ -683,11 +683,10 @@ DjVuImage::get_bg_pixmap(const GRect &rect,
   // Access image size
   
   GP<DjVuInfo> info = get_info();
-  int width = get_real_width();
-  int height = get_real_height();
-
-
-  if (width<=0 || height<=0 || !info) return 0;
+  if (!info) return 0;
+  int width = info->width;
+  int height = info->height;
+  if (width<=0 || height<=0) return 0;
   // Compute gamma_correction
   double gamma_correction = 1.0;
   if (gamma > 0)
@@ -831,14 +830,13 @@ DjVuImage::stencil(GPixmap *pm, const GRect &rect,
   // Warping and blending. 
   if (!pm)
     return 0;
-  // Access components
-  
+  // Access components  
   GP<DjVuInfo> info = get_info();
-  int width = get_real_width();
-  int height = get_real_height();
-
-
-  if (width<=0 || height<=0 || !info) return 0;
+  if (!info) return 0;
+  int width = info->width;
+  int height = info->height;
+  if (width<=0 || height<=0) return 0;
+  
   GP<JB2Image> fgjb = get_fgjb();
   GP<GPixmap> fgpm = get_fgpm();
   GP<DjVuPalette> fgbc = get_fgbc();
@@ -939,24 +937,27 @@ DjVuImage::stencil(GPixmap *pm, const GRect &rect,
           comprect.xmax = (comprect.xmax+subsample-1) / subsample;
           comprect.ymax = (comprect.ymax+subsample-1) / subsample;
           comprect.intersect(comprect, rect);
-          // Compute alpha map for that color
-          bm = 0;
-          bm = GBitmap::create(comprect.height(), comprect.width());
-          bm->set_grays(1+subsample*subsample);
-          int rxmin = comprect.xmin * subsample;
-          int rymin = comprect.ymin * subsample;
-          for (pos=compset; pos; ++pos)
+          if (comprect.width() > 0 && comprect.height() > 0)
             {
-              int blitno = compset[pos];
-              const JB2Blit *pblit = jimg->get_blit(blitno);
-              const JB2Shape  &pshape = jimg->get_shape(pblit->shapeno);
-              bm->blit(pshape.bits, 
-                       pblit->left - rxmin, pblit->bottom - rymin, 
-                       subsample);
+              // Compute alpha map for that color
+              bm = 0;
+              bm = GBitmap::create(comprect.height(), comprect.width());
+              bm->set_grays(1+subsample*subsample);
+              int rxmin = comprect.xmin * subsample;
+              int rymin = comprect.ymin * subsample;
+              for (pos=compset; pos; ++pos)
+                {
+                  int blitno = compset[pos];
+                  const JB2Blit *pblit = jimg->get_blit(blitno);
+                  const JB2Shape  &pshape = jimg->get_shape(pblit->shapeno);
+                  bm->blit(pshape.bits, 
+                           pblit->left - rxmin, pblit->bottom - rymin, 
+                           subsample);
+                }
+              // Blend color into background pixmap
+              pm->blit(bm, comprect.xmin-rect.xmin, comprect.ymin-rect.ymin, 
+                       &colors[colorindex]);
             }
-          // Blend color into background pixmap
-          pm->blit(bm, comprect.xmin-rect.xmin, comprect.ymin-rect.ymin, 
-                   &colors[colorindex]);
         }
       return 1;
     }
@@ -1015,16 +1016,12 @@ DjVuImage::stencil(GPixmap *pm, const GRect &rect,
           GP<GPixmap> nfg;
           int desw = (w*red+wantedred-1)/wantedred;
           int desh = (h*red+wantedred-1)/wantedred;
-          // Cache rescaled fgpm for speed
-          static const DjVuImage *tagimage  = 0;
-          static const GPixmap *tagfgpm   = 0;
-          static GP<GPixmap> cachednfg = 0;
-          // Check whether cached fgpm applies.
-          if ( cachednfg && this==tagimage && fgpm==tagfgpm
-               && desw==(int)cachednfg->columns()
-               && desh==(int)cachednfg->rows() )
+          // Check whether cached fgpm applies to this instance
+          if ( cached_nfg && (const GPixmap*)fgpm==cached_tagfgpm
+               && desw==(int)cached_nfg->columns()
+               && desh==(int)cached_nfg->rows() )
             {
-              nfg = cachednfg;
+              nfg = cached_nfg;
             }
           else
             {
@@ -1036,13 +1033,11 @@ DjVuImage::stencil(GPixmap *pm, const GRect &rect,
               GRect provided(0,0,w,h);
               GRect desired(0,0,desw,desh);
               ps.scale(provided, *fgpm, desired, *nfg);
+              cached_tagfgpm = fgpm;
+              cached_nfg = nfg;
             }
           // Use combined warp+blend function
           pm->stencil(bm, nfg, supersample, &rect, gamma_correction, white);
-          // Cache
-          tagimage = this;
-          tagfgpm = fgpm;
-          cachednfg = nfg;
           return 1;
         }
 #endif
@@ -1114,7 +1109,8 @@ do_bitmap(const DjVuImage &dimg, BImager get,
 {
   GRect rect=inrect;
   GRect all=inall;
-  if (! dimg.get_info())
+  GP<DjVuInfo> info = dimg.get_info();
+  if (! info)
     return 0;
   if( dimg.get_rotate() )
     {
@@ -1129,8 +1125,8 @@ do_bitmap(const DjVuImage &dimg, BImager get,
     G_THROW( ERR_MSG("DjVuImage.bad_rect") );
   // Check for integral reduction
   int red;
-  int w = dimg.get_real_width();
-  int h = dimg.get_real_height();
+  int w = info->width;
+  int h = info->height;
 
   int rw = all.width();
   int rh = all.height();
@@ -1179,7 +1175,8 @@ do_pixmap(const DjVuImage &dimg, PImager get,
 {
   GRect rect=inrect;
   GRect all=inall;
-  if (! dimg.get_info())
+  GP<DjVuInfo> info = dimg.get_info();
+  if (! info)
     return 0;
   if( dimg.get_rotate()%4 )
     {
@@ -1195,8 +1192,8 @@ do_pixmap(const DjVuImage &dimg, PImager get,
     G_THROW( ERR_MSG("DjVuImage.bad_rect2") );
   // Check for integral reduction
   int red, w=0, h=0, rw=0, rh=0;
-  w = dimg.get_real_width();
-  h = dimg.get_real_height();
+  w = info->width;
+  h = info->height;
   rw = all.width();
   rh = all.height();
   GRect zrect = rect; 
