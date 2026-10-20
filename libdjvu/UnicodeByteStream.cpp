@@ -92,9 +92,13 @@ static int
 CountLines(const GUTF8String &str)
 {
   int retval=0;
-  static const unsigned long lf='\n';
-  for(int pos=0;(pos=str.search(lf,pos)+1)>0;++retval)
-    EMPTY_LOOP;
+  const char *ptr = (const char *)str;
+  if (ptr)
+  {
+    for (int j = 0, n = str.length(); j < n; ++j)
+      if (ptr[j] == '\n')
+        ++retval;
+  }
   return retval;
 }
 
@@ -178,21 +182,25 @@ UnicodeByteStream::gets(
   size_t const t,unsigned long const stopat,bool const inclusive)
 {
   GUTF8String retval;
-  unsigned int len=buffer.length()-bufferpos;
-  if(!len)
+  size_t remaining = t;
+  for(;;)
   {
-    int i;
-    char *buf;
-  	static const size_t bufsize=327680;
-    GPBuffer<char> gbuf(buf,bufsize);
-    while((i=read(buf,bufsize)>0))
+    unsigned int len=buffer.length()-bufferpos;
+    if(!len)
     {
-      if((len=buffer.length()-bufferpos))
-        break;
+      int i;
+      char *buf;
+      static const size_t bufsize=65536;
+      GPBuffer<char> gbuf(buf,bufsize);
+      while((i=read(buf,bufsize))>0)
+      {
+        if((len=buffer.length()-bufferpos))
+          break;
+      }
     }
-  }
-  if(len)
-  {
+    if(!len)
+      break;
+
     int i=buffer.search((char)stopat,bufferpos);
     if(i>=0)
     {
@@ -200,22 +208,36 @@ UnicodeByteStream::gets(
       {
         ++i;
       }
-      if(t&&(i>(int)t+bufferpos))
+      if(remaining&&(i>(int)remaining+bufferpos))
       {
-        i=t+bufferpos;
+        i=remaining+bufferpos;
       }
       if(i>bufferpos)
       {
-        retval=buffer.substr(bufferpos,i-bufferpos);
+        GUTF8String chunk = buffer.substr(bufferpos,i-bufferpos);
+        linesread+=CountLines(chunk);
+        retval+=chunk;
       }
       bufferpos=i;
-      linesread+=CountLines(retval);
+      break;
     }else
     {
-      retval=buffer.substr(bufferpos,len);
-      bufferpos=buffer.length();
-      linesread+=CountLines(retval);
-      retval+=gets(t?(t-(i-bufferpos)):0,stopat,inclusive);
+      if(remaining && len >= remaining)
+      {
+        GUTF8String chunk = buffer.substr(bufferpos,remaining);
+        bufferpos+=remaining;
+        linesread+=CountLines(chunk);
+        retval+=chunk;
+        break;
+      }else
+      {
+        GUTF8String chunk = buffer.substr(bufferpos,len);
+        bufferpos=buffer.length();
+        linesread+=CountLines(chunk);
+        retval+=chunk;
+        if(remaining)
+          remaining-=len;
+      }
     }
   }
   return retval;
@@ -280,6 +302,7 @@ XMLByteStream::init(void)
           break;
         }
       }
+      break;
     }
     case 0x003C:
     {
