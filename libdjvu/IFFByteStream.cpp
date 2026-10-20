@@ -146,15 +146,19 @@ IFFByteStream::check_id(const char *id)
     if (id[i]<0x20 || id[i]>0x7e)
       return -1;
   // check composite chunks
-  static const char *szComposite[] = { "FORM", "LIST", "PROP", "CAT ", 0 };
-  for (i=0; szComposite[i]; i++) 
-    if (!memcmp(id, szComposite[i], 4))
-      return 1;
+  if (!memcmp(id, "FORM", 4) ||
+      !memcmp(id, "LIST", 4) ||
+      !memcmp(id, "PROP", 4) ||
+      !memcmp(id, "CAT ", 4))
+    return 1;
   // check reserved chunks
-  static const char *szReserved[] = { "FOR", "LIS", "CAT", 0 };
-  for (i=0; szReserved[i]; i++) 
-    if (!memcmp(id, szReserved[i], 3) && id[3]>='1' && id[3]<='9')
+  if (id[3]>='1' && id[3]<='9')
+  {
+    if (!memcmp(id, "FOR", 3) ||
+        !memcmp(id, "LIS", 3) ||
+        !memcmp(id, "CAT", 3))
       return -1;
+  }
   // regular chunk
   return 0;
 }
@@ -289,9 +293,19 @@ IFFByteStream::get_chunk(GUTF8String &chkid, int *rawoffsetptr, int *rawsizeptr)
   
   // Install context record
   ctx = nctx;
-  chkid = GUTF8String(ctx->idOne, 4);
   if (composite)
-    chkid = chkid + ":" + GUTF8String(ctx->idTwo, 4);
+  {
+    char fullid[10];
+    memcpy(&fullid[0], ctx->idOne, 4);
+    fullid[4] = ':';
+    memcpy(&fullid[5], ctx->idTwo, 4);
+    fullid[9] = 0;
+    chkid = GUTF8String(fullid, 9);
+  }
+  else
+  {
+    chkid = GUTF8String(ctx->idOne, 4);
+  }
 
   // Return
   if (rawoffsetptr)
@@ -325,35 +339,39 @@ IFFByteStream::put_chunk(const char *chkid, int insert_magic)
       || (composite && (chkid[4]!=':' || check_id(&chkid[5]) || chkid[9])) )
     G_THROW( ERR_MSG("IFFByteStream.bad_chunk") );
 
-  // Write padding byte
+  // Assemble header into a single buffer to minimize I/O calls
   assert(seekto <= offset);
-  memset((void*)buffer, 0, 8);
+  char hdr[32];
+  int hdr_len = 0;
   if (offset & 1)
-    offset += bs->write((void*)&buffer[4], 1);
+    hdr[hdr_len++] = 0;
 
-  // Insert magic to make this file recognizable as DjVu
   if (insert_magic)
   {
     // Don't change the way you do the file magic!
     // I rely on these bytes letters in some places
     // (like DjVmFile.cpp and djvm.cpp) -- eaf
-    buffer[0]=0x41;
-    buffer[1]=0x54;
-    buffer[2]=0x26;
-    buffer[3]=0x54;
-    offset += bs->writall((void*)&buffer[0], 4);
+    hdr[hdr_len++] = 0x41;
+    hdr[hdr_len++] = 0x54;
+    hdr[hdr_len++] = 0x26;
+    hdr[hdr_len++] = 0x54;
   }
 
-  // Write chunk header
-  memcpy((void*)&buffer[0], (void*)&chkid[0], 4);
-  bytes = bs->writall((void*)&buffer[0], 8);
-  offset = seekto = offset + bytes;
+  int off_to_start = hdr_len + 8;
+  memcpy(&hdr[hdr_len], &chkid[0], 4);
+  hdr_len += 4;
+  memset(&hdr[hdr_len], 0, 4);
+  hdr_len += 4;
+
   if (composite)
   {
-    memcpy((void*)&buffer[4], (void*)&chkid[5], 4);
-    bytes = bs->writall((void*)&buffer[4], 4);
-    offset = offset + bytes;    
+    memcpy(&hdr[hdr_len], &chkid[5], 4);
+    hdr_len += 4;
   }
+
+  bs->writall((void*)hdr, hdr_len);
+  seekto = offset + off_to_start;
+  offset = offset + hdr_len;
 
   // Create new context record
   IFFContext *nctx = new IFFContext;
@@ -364,13 +382,13 @@ IFFByteStream::put_chunk(const char *chkid, int insert_magic)
     nctx->offEnd = 0;
     if (composite)
     {
-      memcpy( (void*)(nctx->idOne), (void*)&buffer[0], 4);
-      memcpy( (void*)(nctx->idTwo), (void*)&buffer[4], 4);
+      memcpy( (void*)(nctx->idOne), (void*)&chkid[0], 4);
+      memcpy( (void*)(nctx->idTwo), (void*)&chkid[5], 4);
       nctx->bComposite = 1;
     }
     else
     {
-      memcpy( (void*)(nctx->idOne), (void*)&buffer[0], 4);
+      memcpy( (void*)(nctx->idOne), (void*)&chkid[0], 4);
       memset( (void*)(nctx->idTwo), 0, 4);
       nctx->bComposite = 0;
     }
@@ -440,7 +458,14 @@ IFFByteStream::short_id(GUTF8String &chkid)
   if (!ctx)
     G_THROW( ERR_MSG("IFFByteStream.no_chunk_id") );
   if (ctx->bComposite)
-    chkid = GUTF8String(ctx->idOne, 4) + ":" + GUTF8String(ctx->idTwo, 4);
+  {
+    char fullid[10];
+    memcpy(&fullid[0], ctx->idOne, 4);
+    fullid[4] = ':';
+    memcpy(&fullid[5], ctx->idTwo, 4);
+    fullid[9] = 0;
+    chkid = GUTF8String(fullid, 9);
+  }
   else
     chkid = GUTF8String(ctx->idOne, 4);
 }
@@ -483,8 +508,9 @@ IFFByteStream::read(void *buffer, size_t size)
   // Ensure that read does not extend beyond chunk
   if (offset > ctx->offEnd)
     G_THROW( ERR_MSG("IFFByteStream.bad_offset") );
-  if (offset + (long)size >  ctx->offEnd)
-    size = (size_t) (ctx->offEnd - offset);
+  size_t rem = (size_t) (ctx->offEnd - offset);
+  if (size > rem)
+    size = rem;
   // Read bytes
   size_t bytes = bs->read(buffer, size);
   offset += bytes;
