@@ -317,7 +317,8 @@ JB2Image::get_bitmap(const GRect &rect, int subsample, int align, int dispy) con
   int border = ((swidth + align - 1) & ~(align - 1)) - swidth;
   GP<GBitmap> bm = GBitmap::create(sheight, swidth, border);
   bm->set_grays(1+subsample*subsample);
-  for (int blitno = 0; blitno < get_blit_count(); blitno++)
+  const int nblits = get_blit_count();
+  for (int blitno = 0; blitno < nblits; ++blitno)
     {
       const JB2Blit *pblit = get_blit(blitno);
       const JB2Shape  &pshape = get_shape(pblit->shapeno);
