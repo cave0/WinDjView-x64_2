@@ -821,33 +821,25 @@ JB2Dict::JB2Codec::code_bitmap_directly (GBitmap &bm)
 
 void 
 JB2Dict::JB2Codec::Decode::code_bitmap_directly(
-  GBitmap &bm, const int dw, int dy,
-  unsigned char *up2, unsigned char *up1, unsigned char *up0)
+  GBitmap &bm,const int dw, int dy,
+  unsigned char *up2, unsigned char *up1, unsigned char *up0 )
 {
-      ZPCodec &zp = *gzp;
-      // iterate on rows (decoding)
+      ZPCodec &zp=*gzp;
+      // iterate on rows (decoding)      
       while (dy >= 0)
         {
-          int context = get_direct_context(up2, up1, up0, 0);
-          unsigned char *p0 = up0;
-          const unsigned char *p1 = up1 + 3;
-          const unsigned char *p2 = up2 + 2;
-
-          for (int dx = 0; dx < dw; ++dx)
+          int context=get_direct_context(up2, up1, up0, 0);
+          for(int dx=0;dx < dw;)
             {
-              const int n = zp.decoder(bitdist[context]);
-              *p0++ = n;
-              context = ((context << 1) & 0x37a) |
-                        (*p1++ << 2) |
-                        (*p2++ << 7) |
-                        n;
+              int n = zp.decoder(bitdist[context]);
+              up0[dx++] = n;
+              context=shift_direct_context(context, n, up2, up1, up0, dx);
             }
           // next row
-          --dy;
+          dy -= 1;
           up2 = up1;
           up1 = up0;
-          if (dy >= 0)
-            up0 = bm[dy];
+          up0 = bm[dy];
         }
 #ifndef NDEBUG
       bm.check_border();
@@ -863,8 +855,7 @@ JB2Dict::JB2Codec::code_bitmap_by_cross_coding (GBitmap &bm, GP<GBitmap> &cbm, c
   // Make sure bitmaps will not be disturbed
   if (cbm->monitor())
     {
-      // Only allocate a copy if the bitmap is actually shared
-      GP<GBitmap> copycbm = GBitmap::create();
+      GP<GBitmap> copycbm=GBitmap::create();
       GMonitorLock lock2(cbm->monitor());
       copycbm->init(*cbm);
       cbm = copycbm;
@@ -893,42 +884,30 @@ JB2Dict::JB2Codec::code_bitmap_by_cross_coding (GBitmap &bm, GP<GBitmap> &cbm, c
 }
 
 void 
-JB2Dict::JB2Codec::Decode::code_bitmap_by_cross_coding(GBitmap &bm, GBitmap &cbm,
+JB2Dict::JB2Codec::Decode::code_bitmap_by_cross_coding (GBitmap &bm, GBitmap &cbm,
   const int xd2c, const int dw, int dy, int cy,
   unsigned char *up1, unsigned char *up0, unsigned char *xup1, 
-  unsigned char *xup0, unsigned char *xdn1)
+  unsigned char *xup0, unsigned char *xdn1 )
 {
-      ZPCodec &zp = *gzp;
+      ZPCodec &zp=*gzp;
+      // iterate on rows (decoding)      
       while (dy >= 0)
         {
-          int context = get_cross_context(up1, up0, xup1, xup0, xdn1, 0);
-          unsigned char *p0 = up0;
-          const unsigned char *pup1  = up1  + 2;
-          const unsigned char *pxup1 = xup1 + 1;
-          const unsigned char *pxup0 = xup0 + 2;
-          const unsigned char *pxdn1 = xdn1 + 2;
-
-          for (int dx = 0; dx < dw; ++dx)
+          int context=get_cross_context(
+                            up1, up0, xup1, xup0, xdn1, 0);
+          for(int dx=0;dx < dw;)
             {
               const int n = zp.decoder(cbitdist[context]);
-              *p0++ = n;
-              context = ((context << 1) & 0x636) |
-                        (*pup1++  << 8) |
-                        (*pxup1++ << 6) |
-                        (*pxup0++ << 3) |
-                        (*pxdn1++ << 0) |
-                        (n << 7);
+              up0[dx++] = n;
+              context=shift_cross_context(context, n,  
+                                  up1, up0, xup1, xup0, xdn1, dx);
             }
           // next row
           up1 = up0;
-          --dy;
-          if (dy >= 0)
-            up0 = bm[dy];
+          up0 = bm[--dy];
           xup1 = xup0;
           xup0 = xdn1;
-          --cy;
-          if (cy > 0)
-            xdn1 = cbm[cy - 1] + xd2c;
+          xdn1 = cbm[(--cy)-1] + xd2c;
 #ifndef NDEBUG
           bm.check_border();
 #endif
@@ -1386,77 +1365,53 @@ JB2Dict::JB2Codec::Decode::code(const GP<JB2Image> &gjim)
 void 
 JB2Dict::LibRect::compute_bounding_box(const GBitmap &bm)
 {
+  // Avoid trouble
   GMonitorLock lock(bm.monitor());
+  // Get size
   const int w = bm.columns();
   const int h = bm.rows();
-
-  if (w <= 0 || h <= 0)
+  const int s = bm.rowsize();
+  // Right border
+  for(right=w-1;right >= 0;--right)
     {
-      left = 0; right = -1; bottom = 0; top = -1;
-      return;
+      unsigned char const *p = bm[0] + right;
+      unsigned char const * const pe = p+(s*h);
+      for (;(p<pe)&&(!*p);p+=s)
+      	continue;
+      if (p<pe)
+        break;
     }
-
-  // 1. Top border: scan downward row-by-row (fully sequential)
-  for (top = h - 1; top >= 0; --top)
+  // Top border
+  for(top=h-1;top >= 0;--top)
     {
       unsigned char const *p = bm[top];
-      unsigned char const * const pe = p + w;
-      for (; (p < pe) && (!*p); ++p)
-        continue;
-      if (p < pe)
+      unsigned char const * const pe = p+w;
+      for (;(p<pe)&&(!*p); ++p)
+      	continue;
+      if (p<pe)
         break;
     }
-
-  // Empty bitmap check
-  if (top < 0)
+  // Left border
+  for (left=0;left <= right;++left)
     {
-      left = 0; right = -1; bottom = 0; top = -1;
-      return;
+      unsigned char const *p = bm[0] + left;
+      unsigned char const * const pe=p+(s*h);
+      for (;(p<pe)&&(!*p);p+=s)
+      	continue;
+      if (p<pe)
+        break;
     }
-
-  // 2. Bottom border: scan upward row-by-row
-  for (bottom = 0; bottom <= top; ++bottom)
+  // Bottom border
+  for(bottom=0;bottom <= top;++bottom)
     {
       unsigned char const *p = bm[bottom];
-      unsigned char const * const pe = p + w;
-      for (; (p < pe) && (!*p); ++p)
-        continue;
-      if (p < pe)
+      unsigned char const * const pe = p+w;
+      for (;(p<pe)&&(!*p); ++p)
+      	continue;
+      if (p<pe)
         break;
     }
-
-  // 3. Left and Right borders: scan rows between bottom and top.
-  // Sequential cache reads; shrink the search window as bounds are tightened.
-  int min_left = w;
-  int max_right = -1;
-
-  for (int y = bottom; y <= top; ++y)
-    {
-      unsigned char const * const row = bm[y];
-
-      for (int x = 0; x < min_left; ++x)
-        {
-          if (row[x])
-            {
-              min_left = x;
-              break;
-            }
-        }
-
-      for (int x = w - 1; x > max_right; --x)
-        {
-          if (row[x])
-            {
-              max_right = x;
-              break;
-            }
-        }
-    }
-
-  left = (min_left < w) ? min_left : 0;
-  right = max_right;
 }
-
 
 void
 JB2Dict::get_bounding_box(int shapeno, LibRect &dest)
