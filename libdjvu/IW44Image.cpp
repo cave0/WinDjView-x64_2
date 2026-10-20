@@ -89,6 +89,8 @@
 #include <assert.h>
 #include <string.h>
 #include <math.h>
+#include <stdint.h>
+#include <smmintrin.h> // SSE4.1 intrinsics
 
 
 #ifdef HAVE_NAMESPACES
@@ -146,6 +148,93 @@ public:
   // Coding
   virtual int code_slice(ZPCodec &zp);
 };
+
+//////////////////////////////////////////////////////
+// SSSE 4.1 IMPLEMENTATION HELPERS
+//////////////////////////////////////////////////////
+
+#if defined(__SSE4_1__) || defined(_M_X64) || defined(_M_IX86_FP)
+
+static inline void
+sse_bv_1(short* &q, short* e, int s, int s3)
+{
+  while (q < e && (((uintptr_t)q) & 0xF))
+    {
+      int a = (int)q[-s] + (int)q[s];
+      int b = (int)q[-s3] + (int)q[s3];
+      *q -= (((a<<3)+a-b+16)>>5);
+      q++;
+    }
+  const __m128i w9  = _mm_set1_epi32(9);
+  const __m128i d16 = _mm_set1_epi32(16);
+  while (q + 7 < e)
+    {
+      __m128i q_ms  = _mm_loadu_si128((const __m128i*)(q - s));
+      __m128i q_ps  = _mm_loadu_si128((const __m128i*)(q + s));
+      __m128i q_ms3 = _mm_loadu_si128((const __m128i*)(q - s3));
+      __m128i q_ps3 = _mm_loadu_si128((const __m128i*)(q + s3));
+
+      __m128i a = _mm_add_epi16(q_ms, q_ps);
+      __m128i b = _mm_add_epi16(q_ms3, q_ps3);
+
+      __m128i a_lo = _mm_cvtepi16_epi32(a);
+      __m128i b_lo = _mm_cvtepi16_epi32(b);
+      __m128i a_hi = _mm_cvtepi16_epi32(_mm_srli_si128(a, 8));
+      __m128i b_hi = _mm_cvtepi16_epi32(_mm_srli_si128(b, 8));
+
+      __m128i res_lo = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_lo, w9), b_lo), d16), 5);
+      __m128i res_hi = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_hi, w9), b_hi), d16), 5);
+
+      __m128i delta = _mm_packs_epi32(res_lo, res_hi);
+
+      __m128i cur = _mm_load_si128((const __m128i*)q);
+      cur = _mm_sub_epi16(cur, delta);
+      _mm_store_si128((__m128i*)q, cur);
+      q += 8;
+    }
+}
+
+static inline void
+sse_bv_2(short* &q, short* e, int s, int s3)
+{
+  while (q < e && (((uintptr_t)q) & 0xF))
+    {
+      int a = (int)q[-s] + (int)q[s];
+      int b = (int)q[-s3] + (int)q[s3];
+      *q += (((a<<3)+a-b+8)>>4);
+      q++;
+    }
+  const __m128i w9 = _mm_set1_epi32(9);
+  const __m128i d8 = _mm_set1_epi32(8);
+  while (q + 7 < e)
+    {
+      __m128i q_ms  = _mm_loadu_si128((const __m128i*)(q - s));
+      __m128i q_ps  = _mm_loadu_si128((const __m128i*)(q + s));
+      __m128i q_ms3 = _mm_loadu_si128((const __m128i*)(q - s3));
+      __m128i q_ps3 = _mm_loadu_si128((const __m128i*)(q + s3));
+
+      __m128i a = _mm_add_epi16(q_ms, q_ps);
+      __m128i b = _mm_add_epi16(q_ms3, q_ps3);
+
+      __m128i a_lo = _mm_cvtepi16_epi32(a);
+      __m128i b_lo = _mm_cvtepi16_epi32(b);
+      __m128i a_hi = _mm_cvtepi16_epi32(_mm_srli_si128(a, 8));
+      __m128i b_hi = _mm_cvtepi16_epi32(_mm_srli_si128(b, 8));
+
+      __m128i res_lo = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_lo, w9), b_lo), d8), 4);
+      __m128i res_hi = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_hi, w9), b_hi), d8), 4);
+
+      __m128i delta = _mm_packs_epi32(res_lo, res_hi);
+
+      __m128i cur = _mm_load_si128((const __m128i*)q);
+      cur = _mm_add_epi16(cur, delta);
+      _mm_store_si128((__m128i*)q, cur);
+      q += 8;
+    }
+}
+
+#endif
+
 
 //////////////////////////////////////////////////////
 // MMX IMPLEMENTATION HELPERS
@@ -268,7 +357,10 @@ filter_bv(short *p, int w, int h, int rowsize, int scale)
         if (y>=3 && y+3<h)
           {
             // Generic case
-#ifdef MMX
+#if defined(__SSE4_1__) || defined(_M_X64) || defined(_M_IX86_FP)
+            if (scale==1)
+              sse_bv_1(q, e, s, s3);
+#elif defined(MMX)
             if (scale==1 && MMXControl::mmxflag>0)
               mmx_bv_1(q, e, s, s3);
 #endif
@@ -330,7 +422,10 @@ filter_bv(short *p, int w, int h, int rowsize, int scale)
         if (y>=6 && y<h)
           {
             // Generic case
-#ifdef MMX
+#if defined(__SSE4_1__) || defined(_M_X64) || defined(_M_IX86_FP)
+            if (scale==1)
+              sse_bv_2(q, e, s, s3);
+#elif defined(MMX)
             if (scale==1 && MMXControl::mmxflag>0)
               mmx_bv_2(q, e, s, s3);
 #endif
@@ -474,7 +569,7 @@ filter_bh(short *p, int w, int h, int rowsize, int scale)
 // }
 
 
-static int zigzagloc[1024] = {
+static const uint16_t zigzagloc[1024] = {
    0,  16, 512, 528,   8,  24, 520, 536, 256, 272, 768, 784, 264, 280, 776, 792,
    4,  20, 516, 532,  12,  28, 524, 540, 260, 276, 772, 788, 268, 284, 780, 796,
  128, 144, 640, 656, 136, 152, 648, 664, 384, 400, 896, 912, 392, 408, 904, 920,
@@ -648,8 +743,8 @@ IW44Image::Map::allocp(int n)
 {
   // Allocate enough room for pointers plus alignment
   short *p = alloc( (n+1) * sizeof(short*) / sizeof(short) );
-  // Align on pointer size
-  while ( ((long)p) & (sizeof(short*)-1) )
+  // Align on pointer size (uintptr_t prevents 64-bit truncation under Windows LLP64)
+  while ( ((uintptr_t)p) & (sizeof(short*)-1) )
     p += 1;
   // Cast and return
   return (short**)p;
