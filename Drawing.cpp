@@ -843,13 +843,20 @@ void DrawDottedLine(CDC* pDC, const CPoint& ptStart, const CPoint& ptEnd, COLORR
 	lb.lbColor = color;
 	lb.lbHatch = 0;
 
+	// 1 pixel ON, 1 pixel OFF
 	DWORD dwStyle[2] = { 1, 1 };
 	HPEN hPen = ::ExtCreatePen(PS_COSMETIC | PS_USERSTYLE, 1, &lb, 2, dwStyle);
 	if (hPen != NULL)
 	{
 		HGDIOBJ hOldPen = ::SelectObject(pDC->m_hDC, hPen);
+
+		// Guarantee transparent gaps matching the old SetPixel behavior
+		int nOldBkMode = ::SetBkMode(pDC->m_hDC, TRANSPARENT);
+
 		::MoveToEx(pDC->m_hDC, ptStart.x, ptStart.y, NULL);
 		::LineTo(pDC->m_hDC, ptEnd.x, ptEnd.y);
+
+		::SetBkMode(pDC->m_hDC, nOldBkMode);
 		::SelectObject(pDC->m_hDC, hOldPen);
 		::DeleteObject(hPen);
 	}
