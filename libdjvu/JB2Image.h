@@ -53,6 +53,14 @@
 //C- | MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
 //C- +------------------------------------------------------------------
 
+#if defined(_MSC_VER)
+# define JB2_FORCEINLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+# define JB2_FORCEINLINE inline __attribute__((always_inline))
+#else
+# define JB2_FORCEINLINE inline
+#endif
+
 #ifndef _JB2IMAGE_H
 #define _JB2IMAGE_H
 #ifdef HAVE_CONFIG_H
@@ -716,51 +724,51 @@ protected:
   BitContext cbitdist[2048];
 };
 
-inline void
+JB2_FORCEINLINE void
 JB2Dict::JB2Codec::code_eventual_lossless_refinement(void)
 {
-  refinementp=CodeBit(refinementp, dist_refinement_flag);
+  refinementp = CodeBit(refinementp, dist_refinement_flag);
 }
 
-inline void
+JB2_FORCEINLINE void
 JB2Dict::JB2Codec::fill_short_list(const int v)
 {
   short_list[0] = short_list[1] = short_list[2] = v;
   short_list_pos = 0;
 }
 
-inline int
+JB2_FORCEINLINE int
 JB2Dict::JB2Codec::get_direct_context( unsigned char const * const up2,
                     unsigned char const * const up1,
                     unsigned char const * const up0,
                     const int column)
 {
   return ( (up2[column - 1] << 9) |
-              (up2[column    ] << 8) |
-              (up2[column + 1] << 7) |
-              (up1[column - 2] << 6) |
-              (up1[column - 1] << 5) |
-              (up1[column    ] << 4) |
-              (up1[column + 1] << 3) |
-              (up1[column + 2] << 2) |
-              (up0[column - 2] << 1) |
-              (up0[column - 1] << 0) );
+           (up2[column    ] << 8) |
+           (up2[column + 1] << 7) |
+           (up1[column - 2] << 6) |
+           (up1[column - 1] << 5) |
+           (up1[column    ] << 4) |
+           (up1[column + 1] << 3) |
+           (up1[column + 2] << 2) |
+           (up0[column - 2] << 1) |
+           (up0[column - 1] << 0) );
 }
 
-inline int
+JB2_FORCEINLINE int
 JB2Dict::JB2Codec::shift_direct_context(const int context, const int next,
                      unsigned char const * const up2,
                      unsigned char const * const up1,
-                     unsigned char const * const up0,
+                     unsigned char const * const /*up0*/,
                      const int column)
 {
   return ( ((context << 1) & 0x37a) |
-              (up1[column + 2] << 2)   |
-              (up2[column + 1] << 7)   |
-              (next << 0)              );
+           (up1[column + 2] << 2)   |
+           (up2[column + 1] << 7)   |
+           (next << 0)              );
 }
 
-inline int
+JB2_FORCEINLINE int
 JB2Dict::JB2Codec::get_cross_context( unsigned char const * const up1,
                    unsigned char const * const up0,
                    unsigned char const * const xup1,
@@ -769,33 +777,33 @@ JB2Dict::JB2Codec::get_cross_context( unsigned char const * const up1,
                    const int column )
 {
   return ( ( up1[column - 1] << 10) |
-              ( up1[column    ] <<  9) |
-              ( up1[column + 1] <<  8) |
-              ( up0[column - 1] <<  7) |
-              (xup1[column    ] <<  6) |
-              (xup0[column - 1] <<  5) |
-              (xup0[column    ] <<  4) |
-              (xup0[column + 1] <<  3) |
-              (xdn1[column - 1] <<  2) |
-              (xdn1[column    ] <<  1) |
-              (xdn1[column + 1] <<  0) );
+           ( up1[column    ] <<  9) |
+           ( up1[column + 1] <<  8) |
+           ( up0[column - 1] <<  7) |
+           (xup1[column    ] <<  6) |
+           (xup0[column - 1] <<  5) |
+           (xup0[column    ] <<  4) |
+           (xup0[column + 1] <<  3) |
+           (xdn1[column - 1] <<  2) |
+           (xdn1[column    ] <<  1) |
+           (xdn1[column + 1] <<  0) );
 }
 
-inline int
+JB2_FORCEINLINE int
 JB2Dict::JB2Codec::shift_cross_context( const int context, const int n,
                      unsigned char const * const up1,
-                     unsigned char const * const up0,
+                     unsigned char const * const /*up0*/,
                      unsigned char const * const xup1,
                      unsigned char const * const xup0,
                      unsigned char const * const xdn1,
                      const int column )
 {
-  return ( ((context<<1) & 0x636)  |
-              ( up1[column + 1] << 8) |
-              (xup1[column    ] << 6) |
-              (xup0[column + 1] << 3) |
-              (xdn1[column + 1] << 0) |
-              (n << 7)             );
+  return ( ((context << 1) & 0x636) |
+           ( up1[column + 1] << 8)  |
+           (xup1[column    ] << 6)  |
+           (xup0[column + 1] << 3)  |
+           (xdn1[column + 1] << 0)  |
+           (n << 7)                 );
 }
 
 // ---------- THE END
