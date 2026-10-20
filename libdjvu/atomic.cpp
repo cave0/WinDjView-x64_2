@@ -94,30 +94,12 @@ static QWaitCondition qtc;
 
 
 #if USE_WINDOWS_WAIT
-static LONG ini = 0;
-static CRITICAL_SECTION cs;
-static HANDLE ev = 0;
-static void mutex_enter()
-{
-  if (!InterlockedExchange(&ini, 1))
-    {
-      InitializeCriticalSection(&cs);
-      ev = CreateEvent(NULL, TRUE, FALSE, NULL);
-      assert(ev);
-    }
-  EnterCriticalSection(&cs);
-}
-static void cond_wait()
-{
-  ResetEvent(&ev);
-  LeaveCriticalSection(&cs);
-  WaitForSingleObject(ev, INFINITE);
-  EnterCriticalSection(&cs);
-}
-# define MUTEX_ENTER mutex_enter()
-# define MUTEX_LEAVE LeaveCriticalSection(&cs)
-# define COND_WAIT   cond_wait()
-# define COND_WAKEALL SetEvent(ev)
+static SRWLOCK srw = SRWLOCK_INIT;
+static CONDITION_VARIABLE cv = CONDITION_VARIABLE_INIT;
+# define MUTEX_ENTER AcquireSRWLockExclusive(&srw)
+# define MUTEX_LEAVE ReleaseSRWLockExclusive(&srw)
+# define COND_WAIT   SleepConditionVariableSRW(&cv, &srw, INFINITE, 0)
+# define COND_WAKEALL WakeAllConditionVariable(&cv)
 #endif
 
 #if ! defined(COND_WAKEALL) || ! defined(COND_WAIT)
@@ -176,7 +158,7 @@ static void cond_wait()
   (InterlockedExchange((LONG volatile *)(l),0))
 # else
 #  define SYNC_REL(l) \
-  (*(int volatile *)(l)=0)
+  (MemoryBarrier(), *(int volatile *)(l)=0)
 # endif
 # define SYNC_INC(l) \
   (InterlockedIncrement((LONG volatile *)(l)))
@@ -294,12 +276,25 @@ atomicAcquire(int volatile *lock)
   return SYNC_ACQ(lock);
 }
     
+#if defined(WIN32)
+# define CPU_PAUSE() YieldProcessor()
+#elif defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
+# define CPU_PAUSE() __builtin_ia32_pause()
+#else
+# define CPU_PAUSE() ((void)0)
+#endif
+
 void 
 atomicAcquireOrSpin(int volatile *lock)
 {
-  int spin = 16;
-  while (spin >= 0 && ! SYNC_ACQ(lock))
-    spin -= 1;
+  int spin = 64;
+  while (spin >= 0)
+    {
+      if (SYNC_ACQ(lock))
+        return;
+      CPU_PAUSE();
+      spin -= 1;
+    }
   if (spin < 0)
     {
       MUTEX_ENTER;
