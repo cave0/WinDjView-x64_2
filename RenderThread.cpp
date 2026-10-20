@@ -55,17 +55,22 @@ CRenderThread::~CRenderThread()
 
 void CRenderThread::Stop()
 {
-	m_stopping.Lock();
-
-	m_stop.SetEvent();
-
+	// Flag cancellation and clear job queue under m_lock first
 	m_lock.Lock();
-	m_jobs.clear();
-	m_jobReady.ResetEvent();
 	m_bRejectCurrentJob = true;
 	PauseJobs();
+	for (list<Job>::const_iterator it = m_jobs.begin(); it != m_jobs.end(); ++it)
+	{
+		if (it->nPage >= 0 && static_cast<size_t>(it->nPage) < m_pages.size())
+			m_pages[it->nPage] = m_jobs.end();
+	}
+	m_jobs.clear();
+	m_jobReady.ResetEvent();
+	m_stop.SetEvent();
 	m_lock.Unlock();
 
+	// Ensure any in-flight notification callback has exited cleanly
+	m_stopping.Lock();
 	m_stopping.Unlock();
 }
 
@@ -75,8 +80,11 @@ unsigned int __stdcall CRenderThread::RenderThreadProc(void* pvData)
 
 	CRenderThread* pThread = reinterpret_cast<CRenderThread*>(pvData);
 
-	HANDLE hEvents[] = { pThread->m_jobReady.m_hObject, pThread->m_stop.m_hObject };
-	while (::WaitForMultipleObjects(2, hEvents, false, INFINITE) == WAIT_OBJECT_0)
+	// Priority order: m_stop (index 0) is evaluated first so termination requests
+	// preempt pending jobs immediately.
+	HANDLE hEvents[] = { pThread->m_stop.m_hObject, pThread->m_jobReady.m_hObject };
+
+	while (::WaitForMultipleObjects(2, hEvents, FALSE, INFINITE) == (WAIT_OBJECT_0 + 1))
 	{
 		pThread->m_lock.Lock();
 
@@ -90,7 +98,8 @@ unsigned int __stdcall CRenderThread::RenderThreadProc(void* pvData)
 		pThread->m_bRejectCurrentJob = false;
 		pThread->m_currentJob = job;
 		pThread->m_jobs.pop_front();
-		pThread->m_pages[job.nPage] = pThread->m_jobs.end();
+		if (job.nPage >= 0 && static_cast<size_t>(job.nPage) < pThread->m_pages.size())
+			pThread->m_pages[job.nPage] = pThread->m_jobs.end();
 		pThread->m_lock.Unlock();
 
 		CDIB* pBitmap = NULL;
@@ -114,7 +123,7 @@ unsigned int __stdcall CRenderThread::RenderThreadProc(void* pvData)
 			break;
 		}
 
-		// Cannot stop while the owner is being updated
+		// Synchronize state before notifying owner
 		pThread->m_stopping.Lock();
 
 		pThread->m_lock.Lock();
@@ -148,7 +157,7 @@ unsigned int __stdcall CRenderThread::RenderThreadProc(void* pvData)
 
 	::CoUninitialize();
 
-	// Ensure that a call to Stop() is finished
+	// Ensure any pending call to Stop() has completely released
 	pThread->m_stopping.Lock();
 	pThread->m_stopping.Unlock();
 
@@ -177,28 +186,33 @@ void CRenderThread::ResumeJobs()
 	m_lock.Unlock();
 }
 
-bool CRenderThread::IsPaused()
+bool CRenderThread::IsPaused() const
 {
-	return (InterlockedExchangeAdd(&m_nPaused, 0) == 1);
+	return (m_nPaused != 0);
 }
 
 void CRenderThread::RemoveFromQueue(int nPage)
 {
-	// Delete jobs with the same nPage
-	list<Job>::iterator it = m_pages[nPage];
-	if (it != m_jobs.end())
+	if (nPage >= 0 && static_cast<size_t>(nPage) < m_pages.size())
 	{
-		m_jobs.erase(it);
-		m_pages[nPage] = m_jobs.end();
+		list<Job>::iterator it = m_pages[nPage];
+		if (it != m_jobs.end())
+		{
+			m_jobs.erase(it);
+			m_pages[nPage] = m_jobs.end();
+		}
 	}
 }
 
 CDIB* CRenderThread::Render(Job& job)
 {
+	if (m_bRejectCurrentJob)
+		return NULL;
+
 	GP<DjVuImage> pImage = m_pSource->GetPage(job.nPage, m_pOwner);
 	CDIB* pBitmap = NULL;
 
-	if (pImage != NULL)
+	if (pImage != NULL && !m_bRejectCurrentJob)
 	{
 		if (job.size.cx > 0 && job.size.cy > 0)
 		{
@@ -206,39 +220,32 @@ CDIB* CRenderThread::Render(Job& job)
 			CSize szPage(pInfo.szPage);
 			if (job.nRotate % 2 != 0)
 				swap(szPage.cx, szPage.cy);
+
 			CRect rcCrop = pInfo.GetCropRect((job.nRotate + pInfo.nInitialRotate) % 4);
-			const bool bHasCrop = job.displaySettings.bCropPages &&
-				(rcCrop.left != 0 || rcCrop.top != 0 ||
-				 rcCrop.right != szPage.cx || rcCrop.bottom != szPage.cy);
+			const CRect rcPage(0, 0, szPage.cx, szPage.cy);
+			const bool bHasCrop = job.displaySettings.bCropPages && (rcCrop != rcPage);
 
 			if (!bHasCrop)
 			{
-				pBitmap = Render(pImage, job.size, job.displaySettings, job.nDisplayMode, job.nRotate);
+				pBitmap = Render(pImage, job.size, job.displaySettings, job.nDisplayMode, job.nRotate, false, &m_bRejectCurrentJob);
 			}
 			else
 			{
-				// Avoid the expensive "render oversized full page, then crop" path when the crop
-				// rect already covers the entire page; the full-page render is identical to the
-				// final output and does not need an extra bitmap copy.
-				const CRect rcPage(0, 0, szPage.cx, szPage.cy);
-				if (rcCrop == rcPage)
-				{
-					pBitmap = Render(pImage, job.size, job.displaySettings, job.nDisplayMode, job.nRotate);
-				}
-				else
-				{
-					const double fScaleX = 1.0 * job.size.cx / szPage.cx;
-					const double fScaleY = 1.0 * job.size.cy / szPage.cy;
-					const CPoint pt = CPoint(
-						static_cast<int>(rcCrop.left * fScaleX + 0.5),
-						static_cast<int>(rcCrop.top * fScaleY + 0.5));
-					const CSize szScaledCrop(
-						max(1, static_cast<int>((rcCrop.Width() * fScaleX) + 0.5)),
-						max(1, static_cast<int>((rcCrop.Height() * fScaleY) + 0.5)));
+				const double fScaleX = 1.0 * job.size.cx / szPage.cx;
+				const double fScaleY = 1.0 * job.size.cy / szPage.cy;
+				const CPoint pt = CPoint(
+					static_cast<int>(rcCrop.left * fScaleX + 0.5),
+					static_cast<int>(rcCrop.top * fScaleY + 0.5));
+				const CSize szScaledCrop(
+					max(1, static_cast<int>((rcCrop.Width() * fScaleX) + 0.5)),
+					max(1, static_cast<int>((rcCrop.Height() * fScaleY) + 0.5)));
 
-					const CSize szRender = szScaledCrop + pt;
-					pBitmap = Render(pImage, szRender, job.displaySettings, job.nDisplayMode, job.nRotate);
+				const CSize szRender = szScaledCrop + pt;
+				pBitmap = Render(pImage, szRender, job.displaySettings, job.nDisplayMode, job.nRotate, false, &m_bRejectCurrentJob);
 
+				// Only perform crop if the render succeeded and wasn't aborted
+				if (pBitmap != NULL && !m_bRejectCurrentJob)
+				{
 					CRect rcCrop2 = CRect(
 						static_cast<int>(rcCrop.left * fScaleX + 0.5),
 						static_cast<int>(rcCrop.top * fScaleY + 0.5),
@@ -258,7 +265,7 @@ CDIB* CRenderThread::Render(Job& job)
 		}
 	}
 
-	if (pBitmap == NULL || pBitmap->m_hObject == NULL)
+	if (m_bRejectCurrentJob || pBitmap == NULL || pBitmap->m_hObject == NULL)
 	{
 		delete pBitmap;
 		pBitmap = NULL;
@@ -269,10 +276,11 @@ CDIB* CRenderThread::Render(Job& job)
 
 CDIB* CRenderThread::Render(GP<DjVuImage> pImage, const CSize& size,
 		const CDisplaySettings& displaySettings, int nDisplayMode,
-		int nRotate, bool bThumbnail)
+		int nRotate, bool bThumbnail, const volatile bool* pbAbort)
 {
-	if (size.cx <= 0 || size.cy <= 0)
+	if (size.cx <= 0 || size.cy <= 0 || (pbAbort != NULL && *pbAbort))
 		return NULL;
+
 	CSize szImage(pImage->get_width(), pImage->get_height());
 	int nTotalRotate = GetTotalRotate(pImage, nRotate);
 
@@ -285,38 +293,37 @@ CDIB* CRenderThread::Render(GP<DjVuImage> pImage, const CSize& size,
 	bool bScalePnmFixed = true;
 	bool bScaleSubpix = false;
 
-
-	// Use fast scaling for thumbnails.
+	// Fast scaling for thumbnails
 	if (bThumbnail)
 		bScalePnmFixed = false;
 
 	if (displaySettings.bScaleSubpix)
 	{
-		// Use subpixel scaling in most cases, unless scaled image size
-		// is too small or if we are upscaling.
+		// Use subpixel scaling unless the scaled size is too small or upscaling
 		if ((szScaled.cx < 100 || szScaled.cy < 100)
 				|| (szScaled.cx >= szImage.cx || szScaled.cy >= szImage.cy))
 			bScalePnmFixed = false;
 	}
 	else
 	{
-		// Results from PnmScaleFixed are comparable to libdjvu scaling,
-		// when zoom factor is greater than 0.5, so use default faster scaling
-		// in this case. Additionally, use the default scaling when requested
-		// image size is small, since quality does not matter at this
-		// scale. NOTE: this also deals with the special case of size (1, 1),
-		// which can force PnmScaleFixed into an infinite loop.
+		// LibDjVu's default scaling is fast and high-quality for zoom >= 0.5.
+		// Avoid PnmScaleFixed on very small sizes (prevents potential infinite loop on 1x1).
 		if ((szScaled.cx < 100 || szScaled.cy < 100)
 				|| (szScaled.cx >= szImage.cx / 2 || szScaled.cy >= szImage.cy / 2))
 			bScalePnmFixed = false;
 
 		// Disable PnmFixed scaling if we perform an integer reduction of the image.
-		for (int nReduction = 1; nReduction <= 15; ++nReduction)
+		// Dynamically compute the expected reduction factor to avoid a full 15-iteration loop.
+		const int nEstReduction = (szImage.cx + szScaled.cx / 2) / max(1, szScaled.cx);
+		const int nMinReduction = max(1, nEstReduction - 1);
+		const int nMaxReduction = min(15, nEstReduction + 1);
+
+		for (int nReduction = nMinReduction; nReduction <= nMaxReduction; ++nReduction)
 		{
-			if (szScaled.cx*nReduction > szImage.cx - nReduction
-					&& szScaled.cx*nReduction < szImage.cx + nReduction
-					&& szScaled.cy*nReduction > szImage.cy - nReduction
-					&& szScaled.cy*nReduction < szImage.cy + nReduction)
+			if (szScaled.cx * nReduction > szImage.cx - nReduction
+					&& szScaled.cx * nReduction < szImage.cx + nReduction
+					&& szScaled.cy * nReduction > szImage.cy - nReduction
+					&& szScaled.cy * nReduction < szImage.cy + nReduction)
 			{
 				bScalePnmFixed = false;
 				break;
@@ -324,7 +331,7 @@ CDIB* CRenderThread::Render(GP<DjVuImage> pImage, const CSize& size,
 		}
 	}
 
-	// Disable PnmFixed scaling for color images according to settings
+	// Disable PnmFixed scaling for color images according to user settings
 	GP<IW44Image> bg44 = pImage->get_bg44();
 	GP<GPixmap> bgpm = pImage->get_bgpm();
 	GP<GPixmap> fgpm = pImage->get_fgpm();
@@ -370,8 +377,9 @@ CDIB* CRenderThread::Render(GP<DjVuImage> pImage, const CSize& size,
 	{
 		return NULL;
 	}
-	catch (CMemoryException*)
+	catch (CMemoryException* e)
 	{
+		e->Delete();
 		return NULL;
 	}
 	catch (...)
@@ -379,39 +387,94 @@ CDIB* CRenderThread::Render(GP<DjVuImage> pImage, const CSize& size,
 		theApp.ReportFatalError();
 	}
 
+	if (pbAbort != NULL && *pbAbort)
+		return NULL;
+
 	CDIB* pBitmap = NULL;
 
 	if (pGPixmap != NULL)
 	{
-		if (nTotalRotate != 0)
-			pGPixmap = pGPixmap->rotate(nTotalRotate);
-
 		if (bScalePnmFixed)
 		{
 			if (bScaleSubpix)
+			{
+				// Subpixel orientation is horizontal; rotate before subpixel filtering
+				if (nTotalRotate != 0)
+					pGPixmap = pGPixmap->rotate(nTotalRotate);
+
+				if (pbAbort != NULL && *pbAbort)
+					return NULL;
+
 				pGPixmap = RescalePnm_subpix(pGPixmap, size.cx, size.cy);
+			}
 			else
-				pGPixmap = RescalePnm(pGPixmap, size.cx, size.cy);
+			{
+				// Rescale first, then rotate the small image.
+				// This saves massive memory bandwidth vs rotating the native-resolution pixmap.
+				if (nTotalRotate % 2 != 0)
+					pGPixmap = RescalePnm(pGPixmap, size.cy, size.cx);
+				else
+					pGPixmap = RescalePnm(pGPixmap, size.cx, size.cy);
+
+				if (pbAbort != NULL && *pbAbort)
+					return NULL;
+
+				if (nTotalRotate != 0 && pGPixmap != NULL)
+					pGPixmap = pGPixmap->rotate(nTotalRotate);
+			}
+		}
+		else
+		{
+			if (nTotalRotate != 0)
+				pGPixmap = pGPixmap->rotate(nTotalRotate);
 		}
 
-		pBitmap = RenderPixmap(*pGPixmap, displaySettings);
+		if (pbAbort != NULL && *pbAbort)
+			return NULL;
+
+		if (pGPixmap != NULL)
+			pBitmap = RenderPixmap(*pGPixmap, displaySettings);
 	}
 	else if (pGBitmap != NULL)
 	{
-		if (nTotalRotate != 0)
-			pGBitmap = pGBitmap->rotate(nTotalRotate);
-
 		if (bScalePnmFixed)
 		{
 			if (bScaleSubpix)
+			{
+				if (nTotalRotate != 0)
+					pGBitmap = pGBitmap->rotate(nTotalRotate);
+
+				if (pbAbort != NULL && *pbAbort)
+					return NULL;
+
 				pGPixmap = RescalePnm_subpix(pGBitmap, size.cx, size.cy);
+			}
 			else
-				pGBitmap = RescalePnm(pGBitmap, size.cx, size.cy);
+			{
+				if (nTotalRotate % 2 != 0)
+					pGPixmap = RescalePnm(pGBitmap, size.cy, size.cx);
+				else
+					pGPixmap = RescalePnm(pGBitmap, size.cx, size.cy);
+
+				if (pbAbort != NULL && *pbAbort)
+					return NULL;
+
+				if (nTotalRotate != 0 && pGPixmap != NULL)
+					pGPixmap = pGPixmap->rotate(nTotalRotate);
+			}
+		}
+		else
+		{
+			if (nTotalRotate != 0)
+				pGBitmap = pGBitmap->rotate(nTotalRotate);
 		}
 
-		if (pGPixmap)
+		if (pbAbort != NULL && *pbAbort)
+			return NULL;
+
+		if (pGPixmap != NULL)
 			pBitmap = RenderPixmap(*pGPixmap, displaySettings);
-		else
+		else if (pGBitmap != NULL)
 			pBitmap = RenderBitmap(*pGBitmap, displaySettings);
 	}
 	else
@@ -469,6 +532,8 @@ void CRenderThread::AddCleanupJob(int nPage)
 void CRenderThread::AddJob(const Job& job)
 {
 	m_lock.Lock();
+
+	// Deduplicate identical current job
 	if (m_currentJob.nPage == job.nPage && m_currentJob.type == RENDER &&
 		job.type == RENDER && job.nRotate == m_currentJob.nRotate && 
 		job.size == m_currentJob.size && job.nDisplayMode == m_currentJob.nDisplayMode &&
@@ -478,10 +543,18 @@ void CRenderThread::AddJob(const Job& job)
 		return;
 	}
 
+	// If the current in-flight job renders this same page with outdated parameters
+	// (e.g., zoom/rotation changed), abort it cooperatively
+	if (m_currentJob.nPage == job.nPage)
+	{
+		m_bRejectCurrentJob = true;
+	}
+
 	RemoveFromQueue(job.nPage);
 
 	m_jobs.push_front(job);
-	m_pages[job.nPage] = m_jobs.begin();
+	if (job.nPage >= 0 && static_cast<size_t>(job.nPage) < m_pages.size())
+		m_pages[job.nPage] = m_jobs.begin();
 
 	if (!IsPaused())
 		m_jobReady.SetEvent();
@@ -493,8 +566,14 @@ void CRenderThread::RemoveAllJobs()
 {
 	m_lock.Lock();
 
+	// Reset only entries for active jobs: O(N_jobs) rather than O(TotalPages)
+	for (list<Job>::const_iterator it = m_jobs.begin(); it != m_jobs.end(); ++it)
+	{
+		if (it->nPage >= 0 && static_cast<size_t>(it->nPage) < m_pages.size())
+			m_pages[it->nPage] = m_jobs.end();
+	}
 	m_jobs.clear();
-	m_pages.assign(m_pSource->GetPageCount(), m_jobs.end());
+	m_jobReady.ResetEvent();
 
 	m_lock.Unlock();
 }
