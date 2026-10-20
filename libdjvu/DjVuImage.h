@@ -426,6 +426,8 @@ private:
   GP<DjVuFile>		file;
   int			rotate_count;
   bool			relayout_sent;
+  mutable const GPixmap *cached_tagfgpm;
+  mutable GP<GPixmap>	cached_nfg;
   
   // HELPERS
   int stencil(GPixmap *pm, const GRect &rect, int s, double g, GPixel w) const;
