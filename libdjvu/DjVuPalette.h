@@ -62,10 +62,10 @@
 # pragma interface
 #endif
 
-
 #include "GContainer.h"
 #include "GPixmap.h"
 #include <string.h>
+#include <algorithm>
 
 
 #ifdef HAVE_NAMESPACES
@@ -350,8 +350,3 @@ using namespace DJVU;
 # endif
 #endif
 #endif
-      
-      
-             
-
-    
