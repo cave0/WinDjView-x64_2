@@ -325,6 +325,7 @@ lt_XMLTags::get_Tags(char const tagname[]) const
   return (pos?allTags[pos]:retval);
 }
 
+
 void
 lt_XMLTags::get_Maps(char const tagname[],
                      char const argn[],
@@ -333,7 +334,7 @@ lt_XMLTags::get_Maps(char const tagname[],
 {
   for(GPosition pos=list;pos;++pos)
   {
-    GP<lt_XMLTags> &tag=list[pos];
+    const GP<lt_XMLTags> &tag=list[pos];
     if(tag)
     {
       GPosition loc;
