@@ -321,9 +321,7 @@ GP<GPixmap> RescalePnm(GP<GPixmap> pSrc, UINT nWidth, UINT nHeight)
 		acc[col].b = HALFSCALE;
 	}
 
-	GPixel* xelrow = 0;
-	const GPixel* xP;
-	GPixel* nxP;
+	GPixel* xelrow = NULL;
 
 	for (UINT row = 0; row < newrows; ++row)
 	{
@@ -346,7 +344,8 @@ GP<GPixmap> RescalePnm(GP<GPixmap> pSrc, UINT nWidth, UINT nHeight)
 				}
 
 				PixelAcc* pAcc = acc;
-				for (UINT col = 0, xP = xelrow; col < cols; ++col, ++xP, ++pAcc)
+				const GPixel* xP = xelrow;
+				for (UINT col = 0; col < cols; ++col, ++xP, ++pAcc)
 				{
 					pAcc->r += fracrowleft * xP->r;
 					pAcc->g += fracrowleft * xP->g;
@@ -369,7 +368,9 @@ GP<GPixmap> RescalePnm(GP<GPixmap> pSrc, UINT nWidth, UINT nHeight)
 			}
 
 			PixelAcc* pAcc = acc;
-			for (UINT col = 0, xP = xelrow, nxP = tempxelrow; col < cols; ++col, ++xP, ++nxP, ++pAcc)
+			const GPixel* xP = xelrow;
+			GPixel* nxP = tempxelrow;
+			for (UINT col = 0; col < cols; ++col, ++xP, ++nxP, ++pAcc)
 			{
 				UINT r = pAcc->r + fracrowtofill * xP->r;
 				UINT g = pAcc->g + fracrowtofill * xP->g;
@@ -450,9 +451,7 @@ GP<GPixmap> RescalePnm_subpix(GP<GPixmap> pSrc, UINT nWidth, UINT nHeight)
 		acc[col].b = HALFSCALE;
 	}
 
-	GPixel* xelrow = 0;
-	const GPixel* xP;
-	GPixel* nxP;
+	GPixel* xelrow = NULL;
 
 	for (UINT row = 0; row < newrows; ++row)
 	{
@@ -475,7 +474,8 @@ GP<GPixmap> RescalePnm_subpix(GP<GPixmap> pSrc, UINT nWidth, UINT nHeight)
 				}
 
 				PixelAcc* pAcc = acc;
-				for (UINT col = 0, xP = xelrow; col < cols; ++col, ++xP, ++pAcc)
+				const GPixel* xP = xelrow;
+				for (UINT col = 0; col < cols; ++col, ++xP, ++pAcc)
 				{
 					pAcc->r += fracrowleft * xP->r;
 					pAcc->g += fracrowleft * xP->g;
@@ -498,7 +498,9 @@ GP<GPixmap> RescalePnm_subpix(GP<GPixmap> pSrc, UINT nWidth, UINT nHeight)
 			}
 
 			PixelAcc* pAcc = acc;
-			for (UINT col = 0, xP = xelrow, nxP = tempxelrow; col < cols; ++col, ++xP, ++nxP, ++pAcc)
+			const GPixel* xP = xelrow;
+			GPixel* nxP = tempxelrow;
+			for (UINT col = 0; col < cols; ++col, ++xP, ++nxP, ++pAcc)
 			{
 				UINT r = pAcc->r + fracrowtofill * xP->r;
 				UINT g = pAcc->g + fracrowtofill * xP->g;
@@ -587,9 +589,7 @@ GP<GBitmap> RescalePnm(GP<GBitmap> pSrc, UINT nWidth, UINT nHeight)
 	for (UINT col = 0; col < cols; ++col)
 		rs[col] = HALFSCALE;
 
-	BYTE* xelrow = 0;
-	const BYTE* xP;
-	BYTE* nxP;
+	BYTE* xelrow = NULL;
 
 	for (UINT row = 0; row < newrows; ++row)
 	{
@@ -612,7 +612,8 @@ GP<GBitmap> RescalePnm(GP<GBitmap> pSrc, UINT nWidth, UINT nHeight)
 				}
 
 				UINT* prs = rs;
-				for (UINT col = 0, xP = xelrow; col < cols; ++col, ++xP, ++prs)
+				const BYTE* xP = xelrow;
+				for (UINT col = 0; col < cols; ++col, ++xP, ++prs)
 				{
 					*prs += fracrowleft * grays[*xP];
 				}
@@ -633,7 +634,9 @@ GP<GBitmap> RescalePnm(GP<GBitmap> pSrc, UINT nWidth, UINT nHeight)
 			}
 
 			UINT* prs = rs;
-			for (UINT col = 0, xP = xelrow, nxP = tempxelrow; col < cols; ++col, ++xP, ++nxP, ++prs)
+			const BYTE* xP = xelrow;
+			BYTE* nxP = tempxelrow;
+			for (UINT col = 0; col < cols; ++col, ++xP, ++nxP, ++prs)
 			{
 				UINT r = *prs + fracrowtofill * grays[*xP];
 				*nxP = (BYTE) (r >> SCALESHIFT);
@@ -677,12 +680,12 @@ GP<GPixmap> RescalePnm_subpix(GP<GBitmap> pSrc, UINT nWidth, UINT nHeight)
 	if (cols == 0 || rows == 0)
 		return GP<GPixmap>();
 
-	GP<GPixmap> pGPixmap = GPixmap::create(nHeight, nWidth);
-	if (pGPixmap == NULL)
-		return GP<GPixmap>();
-
 	UINT newcols = nWidth;
 	UINT newrows = nHeight;
+
+	GP<GPixmap> pGPixmap = GPixmap::create(newrows, newcols);
+	if (pGPixmap == NULL)
+		return GP<GPixmap>();
 
 	// Clamp palette entries to [2, 256] to prevent division by zero or buffer overflow
 	UINT nPaletteEntries = pSrc->get_grays();
@@ -720,9 +723,7 @@ GP<GPixmap> RescalePnm_subpix(GP<GBitmap> pSrc, UINT nWidth, UINT nHeight)
 	for (UINT col = 0; col < cols; ++col)
 		rs[col] = HALFSCALE;
 
-	BYTE* xelrow = 0;
-	const BYTE* xP;
-	BYTE* nxP;
+	BYTE* xelrow = NULL;
 
 	for (UINT row = 0; row < newrows; ++row)
 	{
@@ -745,7 +746,8 @@ GP<GPixmap> RescalePnm_subpix(GP<GBitmap> pSrc, UINT nWidth, UINT nHeight)
 				}
 
 				UINT* prs = rs;
-				for (UINT col = 0, xP = xelrow; col < cols; ++col, ++xP, ++prs)
+				const BYTE* xP = xelrow;
+				for (UINT col = 0; col < cols; ++col, ++xP, ++prs)
 				{
 					*prs += fracrowleft * grays[*xP];
 				}
@@ -766,7 +768,9 @@ GP<GPixmap> RescalePnm_subpix(GP<GBitmap> pSrc, UINT nWidth, UINT nHeight)
 			}
 
 			UINT* prs = rs;
-			for (UINT col = 0, xP = xelrow, nxP = tempxelrow; col < cols; ++col, ++xP, ++nxP, ++prs)
+			const BYTE* xP = xelrow;
+			BYTE* nxP = tempxelrow;
+			for (UINT col = 0; col < cols; ++col, ++xP, ++nxP, ++prs)
 			{
 				UINT r = *prs + fracrowtofill * grays[*xP];
 				*nxP = (BYTE) (r >> SCALESHIFT);
