@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include "Global.h"
+
 GP<GBitmap> RescalePnm(GP<GBitmap> pSrc, UINT nWidth, UINT nHeight);
 GP<GPixmap> RescalePnm(GP<GPixmap> pSrc, UINT nWidth, UINT nHeight);
 
