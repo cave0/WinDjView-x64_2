@@ -170,18 +170,17 @@ ArrayRep::resize(int lo, int hi)
   if (nminlo > nmaxhi)
     nminlo = nmaxhi = lo;
   while (nminlo > lo) {
-    int incr = nmaxhi - nminlo;
-    nminlo -= (incr < 8 ? 8 : (incr > 32768 ? 32768 : incr));
+    int incr = nmaxhi - nminlo + 1;
+    nminlo -= (incr < 8 ? 8 : (incr > 1048576 ? 1048576 : incr));
   }
   while (nmaxhi < hi) {
-    int incr = nmaxhi - nminlo;
-    nmaxhi += (incr < 8 ? 8 : (incr > 32768 ? 32768 : incr));
+    int incr = nmaxhi - nminlo + 1;
+    nmaxhi += (incr < 8 ? 8 : (incr > 1048576 ? 1048576 : incr));
   }
   // allocate
   int bytesize=elsize*(nmaxhi-nminlo+1);
   void * ndata;
   GPBufferBase gndata(ndata,bytesize,1);
-  memset(ndata, 0, bytesize);
   // initialize
   init1(ndata, lo-nminlo, lobound-1-nminlo);
   init2(ndata, lobound-nminlo, hibound-nminlo,
@@ -231,11 +230,13 @@ ArrayRep::ins(int n, const void * what, unsigned int howmany)
    {
       int nmaxhi = maxhi;
       while (nmaxhi < nhi)
-	 nmaxhi += (nmaxhi < 8 ? 8 : (nmaxhi > 32768 ? 32768 : nmaxhi));
+      {
+         int incr = nmaxhi - minlo + 1;
+         nmaxhi += (incr < 8 ? 8 : (incr > 1048576 ? 1048576 : incr));
+      }
       int bytesize = elsize*(nmaxhi-minlo+1);
       void *ndata;
       GPBufferBase gndata(ndata,bytesize,1);
-      memset(ndata, 0, bytesize);
       copy(ndata, lobound-minlo, hibound-minlo,
 	   data, lobound-minlo, hibound-minlo);
       destroy(data, lobound-minlo, hibound-minlo);
