@@ -174,22 +174,50 @@ lt_XMLParser::create(void)
   return new lt_XMLParser::Impl;
 }
 
+// Stack-based 4-int parser avoiding heap allocations for bounding boxes
+static bool
+parse4Coords(const GUTF8String &coords, int out[4])
+{
+  int pos = 0;
+  const int len = coords.length();
+  for (int idx = 0; idx < 4; ++idx)
+  {
+    int epos = -1;
+    out[idx] = (int)coords.toLong(pos, epos, 10);
+    if (epos < 0)
+      return false;
+    pos = coords.nextNonSpace(epos);
+    if (idx < 3)
+    {
+      if (pos >= len || coords[pos] != ',')
+        return false;
+      pos++;
+    }
+  }
+  return true;
+}
+
 // helper function for args
 static void 
-intList(GUTF8String coords, GList<int> &retval)
+intList(const GUTF8String &coords, GList<int> &retval)
 {
   int pos=0;
-  while(coords.length())
+  const int len=coords.length();
+  while(pos < len)
   {
-    int epos;
+    int epos = -1;
     unsigned long i=coords.toLong(pos,epos,10);
     if(epos>=0)
     {
-      retval.append(i);
+      retval.append((int)i);
       const int n=coords.nextNonSpace(epos);
-      if(coords[n] != ',')
+      if(n >= len || coords[n] != ',')
         break;
       pos=n+1;
+    }
+    else
+    {
+      break;
     }
   }
 }
@@ -844,61 +872,81 @@ make_child_layer(
   default_rect.ymin=max(parent.rect.ymax,parent.rect.ymin);
   default_rect.ymax=min(parent.rect.ymax,parent.rect.ymin);
   // Now if there are coordinates, use those.
-  GPosition pos(tag.get_args().contains("coords"));
-  if(pos)
+  bool has_coords = false;
+  GPosition coordPos(tag.get_args().contains("coords"));
+  if(coordPos)
   {
-    GList<int> rectArgs;
-    intList(tag.get_args()[pos], rectArgs);
-    if((pos=rectArgs))
+    int coords[4];
+    if(parse4Coords(tag.get_args()[coordPos], coords))
     {
-      xmin=(int)(ws*(double)rectArgs[pos]);
-      if(++pos)
+      has_coords = true;
+      xmin=(int)(ws*(double)coords[0]);
+      ymin=(height-1)-(int)(hs*(double)coords[1]);
+      xmax=(int)(ws*(double)coords[2]);
+      ymax=(height-1)-(int)(hs*(double)coords[3]);
+    }
+    else
+    {
+      GList<int> rectArgs;
+      intList(tag.get_args()[coordPos], rectArgs);
+      GPosition rpos = rectArgs;
+      if(rpos)
       {
-        ymin=(height-1)-(int)(hs*(double)rectArgs[pos]);
-        if(++pos)
+        has_coords = true;
+        xmin=(int)(ws*(double)rectArgs[rpos]);
+        if(++rpos)
         {
-          xmax=(int)(ws*(double)rectArgs[pos]);
-          if(++pos)
+          ymin=(height-1)-(int)(hs*(double)rectArgs[rpos]);
+          if(++rpos)
           {
-            ymax=(height-1)-(int)(hs*(double)rectArgs[pos]);
-            if(xmin>xmax) // Make sure xmin is really minimum
+            xmax=(int)(ws*(double)rectArgs[rpos]);
+            if(++rpos)
             {
-              const int t=xmin;
-              xmin=xmax;
-              xmax=t;
-            }
-            if(ymin>ymax) // Make sure ymin is really minimum
-            {
-              const int t=ymin;
-              ymin=ymax;
-              ymax=t;
+              ymax=(height-1)-(int)(hs*(double)rectArgs[rpos]);
             }
           }
         }
       }
     }
+    if(has_coords)
+    {
+      if(xmin>xmax) // Make sure xmin is really minimum
+      {
+        const int t=xmin;
+        xmin=xmax;
+        xmax=t;
+      }
+      if(ymin>ymax) // Make sure ymin is really minimum
+      {
+        const int t=ymin;
+        ymin=ymax;
+        ymax=t;
+      }
+    }
   }
   if(self.ztype == DjVuTXT::CHARACTER)
   {
-    if(! pos)
+    if(! has_coords)
     {
       self.rect=default_rect;
       retval=false;
     }
     const GUTF8String raw(tag.get_raw().fromEscaped());
     const int i=raw.nextNonSpace(0);
-    bs.writestring(raw.substr(i,raw.firstEndSpace(i)-i));
+    const int end=raw.firstEndSpace(i);
+    if(end > i)
+      bs.writall((const char *)raw + i, end - i);
     if(sepchar)
       bs.write8(sepchar);
     self.text_length = bs.tell() - self.text_start;
-  }else if(pos)
+  }else if(has_coords)
   {
-    pos=tag.get_content();
-    if(pos)
+    GPosition cpos=tag.get_content();
+    if(cpos)
     {
-      for(pos=tag.get_content(); pos; ++pos)
+      for(; cpos; ++cpos)
       {
-        const GP<lt_XMLTags> t(tag.get_content()[pos].tag);
+        const GP<lt_XMLTags> t(tag.get_content()[cpos].tag);
         make_child_layer(self, *t, bs, height,ws,hs);
       }
       if(sepchar)
@@ -908,7 +956,9 @@ make_child_layer(
     {
       const GUTF8String raw(tag.get_raw().fromEscaped());
       const int i=raw.nextNonSpace(0);
-      bs.writestring(raw.substr(i,raw.firstEndSpace(i)-i));
+      const int end=raw.firstEndSpace(i);
+      if(end > i)
+        bs.writall((const char *)raw + i, end - i);
       if(sepchar)
         bs.write8(sepchar);
       self.text_length = bs.tell() - self.text_start;
@@ -916,11 +966,12 @@ make_child_layer(
   }else
   {
     self.rect=default_rect;
-    if((pos=tag.get_content()))
+    GPosition cpos=tag.get_content();
+    if(cpos)
     {
       do
       {
-        const GP<lt_XMLTags> t(tag.get_content()[pos].tag);
+        const GP<lt_XMLTags> t(tag.get_content()[cpos].tag);
         const GRect save_rect(self.rect);
         self.rect=default_rect;
 	if ((retval = make_child_layer(self, *t, bs, height, ws, hs)))
@@ -937,14 +988,14 @@ make_child_layer(
           xmax=max(save_rect.xmax,default_rect.xmin);
           ymin=min(save_rect.ymin,default_rect.ymax);
           ymax=max(save_rect.ymax,default_rect.ymin);
-          for(; pos; ++pos)
+          for(++cpos; cpos; ++cpos)
           {
-            const GP<lt_XMLTags> t(tag.get_content()[pos].tag);
-            make_child_layer(self, *t, bs, height,ws,hs);
+            const GP<lt_XMLTags> t_next(tag.get_content()[cpos].tag);
+            make_child_layer(self, *t_next, bs, height,ws,hs);
           }
           break;
         }
-      } while(++pos);
+      } while(++cpos);
       if(sepchar)
         bs.write8(sepchar);
       self.text_length = bs.tell() - self.text_start;
@@ -952,7 +1003,9 @@ make_child_layer(
     {
       const GUTF8String raw(tag.get_raw().fromEscaped());
       const int i=raw.nextNonSpace(0);
-      bs.writestring(raw.substr(i,raw.firstEndSpace(i)-i));
+      const int end=raw.firstEndSpace(i);
+      if(end > i)
+        bs.writall((const char *)raw + i, end - i);
       if(sepchar)
         bs.write8(sepchar);
       self.text_length = bs.tell() - self.text_start;
