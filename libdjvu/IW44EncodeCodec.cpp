@@ -89,6 +89,9 @@
 #include <assert.h>
 #include <string.h>
 #include <math.h>
+#include <stdint.h>
+#include <smmintrin.h> // SSE4.1 intrinsics
+#include <algorithm>   // For std::nth_element
 
 #ifndef NEED_DECODER_ONLY
 
@@ -290,6 +293,92 @@ class IW44Image::Transform::Encode : IW44Image::Transform
 
 
 //////////////////////////////////////////////////////
+// SSE 4.1 IMPLEMENTATION HELPERS
+//////////////////////////////////////////////////////
+
+#if defined(__SSE4_1__) || defined(_M_X64) || defined(_M_IX86_FP)
+
+static inline void
+sse_fv_1(short* &q, short* e, int s, int s3)
+{
+  while (q < e && (((uintptr_t)q) & 0xF))
+    {
+      int a = (int)q[-s] + (int)q[s];
+      int b = (int)q[-s3] + (int)q[s3];
+      *q -= (((a<<3)+a-b+8)>>4);
+      q++;
+    }
+  const __m128i w9 = _mm_set1_epi32(9);
+  const __m128i d8 = _mm_set1_epi32(8);
+  while (q + 7 < e)
+    {
+      __m128i q_ms  = _mm_loadu_si128((const __m128i*)(q - s));
+      __m128i q_ps  = _mm_loadu_si128((const __m128i*)(q + s));
+      __m128i q_ms3 = _mm_loadu_si128((const __m128i*)(q - s3));
+      __m128i q_ps3 = _mm_loadu_si128((const __m128i*)(q + s3));
+
+      __m128i a = _mm_add_epi16(q_ms, q_ps);
+      __m128i b = _mm_add_epi16(q_ms3, q_ps3);
+
+      __m128i a_lo = _mm_cvtepi16_epi32(a);
+      __m128i b_lo = _mm_cvtepi16_epi32(b);
+      __m128i a_hi = _mm_cvtepi16_epi32(_mm_srli_si128(a, 8));
+      __m128i b_hi = _mm_cvtepi16_epi32(_mm_srli_si128(b, 8));
+
+      __m128i res_lo = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_lo, w9), b_lo), d8), 4);
+      __m128i res_hi = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_hi, w9), b_hi), d8), 4);
+
+      __m128i delta = _mm_packs_epi32(res_lo, res_hi);
+
+      __m128i cur = _mm_load_si128((const __m128i*)q);
+      cur = _mm_sub_epi16(cur, delta);
+      _mm_store_si128((__m128i*)q, cur);
+      q += 8;
+    }
+}
+
+static inline void
+sse_fv_2(short* &q, short* e, int s, int s3)
+{
+  while (q < e && (((uintptr_t)q) & 0xF))
+    {
+      int a = (int)q[-s] + (int)q[s];
+      int b = (int)q[-s3] + (int)q[s3];
+      *q += (((a<<3)+a-b+16)>>5);
+      q++;
+    }
+  const __m128i w9  = _mm_set1_epi32(9);
+  const __m128i d16 = _mm_set1_epi32(16);
+  while (q + 7 < e)
+    {
+      __m128i q_ms  = _mm_loadu_si128((const __m128i*)(q - s));
+      __m128i q_ps  = _mm_loadu_si128((const __m128i*)(q + s));
+      __m128i q_ms3 = _mm_loadu_si128((const __m128i*)(q - s3));
+      __m128i q_ps3 = _mm_loadu_si128((const __m128i*)(q + s3));
+
+      __m128i a = _mm_add_epi16(q_ms, q_ps);
+      __m128i b = _mm_add_epi16(q_ms3, q_ps3);
+
+      __m128i a_lo = _mm_cvtepi16_epi32(a);
+      __m128i b_lo = _mm_cvtepi16_epi32(b);
+      __m128i a_hi = _mm_cvtepi16_epi32(_mm_srli_si128(a, 8));
+      __m128i b_hi = _mm_cvtepi16_epi32(_mm_srli_si128(b, 8));
+
+      __m128i res_lo = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_lo, w9), b_lo), d16), 5);
+      __m128i res_hi = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_hi, w9), b_hi), d16), 5);
+
+      __m128i delta = _mm_packs_epi32(res_lo, res_hi);
+
+      __m128i cur = _mm_load_si128((const __m128i*)q);
+      cur = _mm_add_epi16(cur, delta);
+      _mm_store_si128((__m128i*)q, cur);
+      q += 8;
+    }
+}
+
+#endif
+
+//////////////////////////////////////////////////////
 // MMX IMPLEMENTATION HELPERS
 //////////////////////////////////////////////////////
 
@@ -417,7 +506,10 @@ filter_fv(short *p, int w, int h, int rowsize, int scale)
         if (y>=3 && y+3<h)
           {
             // Generic case
-#ifdef MMX
+#if defined(__SSE4_1__) || defined(_M_X64) || defined(_M_IX86_FP)
+            if (scale==1)
+              sse_fv_1(q, e, s, s3);
+#elif defined(MMX)
             if (scale==1 && MMXControl::mmxflag>0)
               mmx_fv_1(q, e, s, s3);
 #endif
@@ -449,7 +541,10 @@ filter_fv(short *p, int w, int h, int rowsize, int scale)
         if (y>=6 && y<h)
           {
             // Generic case
-#ifdef MMX
+#if defined(__SSE4_1__) || defined(_M_X64) || defined(_M_IX86_FP)
+            if (scale==1)
+              sse_fv_2(q, e, s, s3);
+#elif defined(MMX)
             if (scale==1 && MMXControl::mmxflag>0)
               mmx_fv_2(q, e, s, s3);
 #endif
@@ -626,30 +721,25 @@ rgb_to_ycc[3][3] =
   { 0.463768F, -0.405797F, -0.057971F },
   {-0.173913F, -0.347826F,  0.521739F } };
 
-
-/* Extracts Y */
-void 
-IW44Image::Transform::Encode::RGB_to_Y(const GPixel *p, int w, int h, int rowsize, 
-                      signed char *out, int outrowsize)
-{
-  int rmul[256], gmul[256], bmul[256];
-  for (int k=0; k<256; k++)
-    {
-      rmul[k] = (int)(k*0x10000*rgb_to_ycc[0][0]);
-      gmul[k] = (int)(k*0x10000*rgb_to_ycc[0][1]);
-      bmul[k] = (int)(k*0x10000*rgb_to_ycc[0][2]);
+// Precalculated tables: eliminates stack allocation & repeated runtime multiplications
+static struct RGB_YCC_LUT {
+  int r_y[256], g_y[256], b_y[256];
+  int r_cb[256], g_cb[256], b_cb[256];
+  int r_cr[256], g_cr[256], b_cr[256];
+  RGB_YCC_LUT() {
+    for (int k = 0; k < 256; k++) {
+      r_y[k]  = (int)(k * 0x10000 * rgb_to_ycc[0][0]);
+      g_y[k]  = (int)(k * 0x10000 * rgb_to_ycc[0][1]);
+      b_y[k]  = (int)(k * 0x10000 * rgb_to_ycc[0][2]);
+      r_cb[k] = (int)(k * 0x10000 * rgb_to_ycc[2][0]);
+      g_cb[k] = (int)(k * 0x10000 * rgb_to_ycc[2][1]);
+      b_cb[k] = (int)(k * 0x10000 * rgb_to_ycc[2][2]);
+      r_cr[k] = (int)((k * 0x10000) * rgb_to_ycc[1][0]);
+      g_cr[k] = (int)((k * 0x10000) * rgb_to_ycc[1][1]);
+      b_cr[k] = (int)((k * 0x10000) * rgb_to_ycc[1][2]);
     }
-  for (int i=0; i<h; i++, p+=rowsize, out+=outrowsize)
-    {
-      const GPixel *p2 = p;
-      signed char *out2 = out;
-      for (int j=0; j<w; j++,p2++,out2++)
-        {
-          int y = rmul[p2->r] + gmul[p2->g] + bmul[p2->b] + 32768;
-          *out2 = (y>>16) - 128;
-        }
-    }
-}
+  }
+} ycc_lut;
 
 #ifdef min
 #undef min
@@ -660,25 +750,35 @@ static inline int min(const int x,const int y) {return (x<y)?x:y;}
 #endif
 static inline int max(const int x,const int y) {return (x>y)?x:y;}
 
-/* Extracts Cb */
+/* Extracts Y */
 void 
-IW44Image::Transform::Encode::RGB_to_Cb(const GPixel *p, int w, int h, int rowsize, 
-                       signed char *out, int outrowsize)
+IW44Image::Transform::Encode::RGB_to_Y(const GPixel *p, int w, int h, int rowsize, 
+                      signed char *out, int outrowsize)
 {
-  int rmul[256], gmul[256], bmul[256];
-  for (int k=0; k<256; k++)
-    {
-      rmul[k] = (int)(k*0x10000*rgb_to_ycc[2][0]);
-      gmul[k] = (int)(k*0x10000*rgb_to_ycc[2][1]);
-      bmul[k] = (int)(k*0x10000*rgb_to_ycc[2][2]);
-    }
   for (int i=0; i<h; i++, p+=rowsize, out+=outrowsize)
     {
       const GPixel *p2 = p;
       signed char *out2 = out;
       for (int j=0; j<w; j++,p2++,out2++)
         {
-          int c = rmul[p2->r] + gmul[p2->g] + bmul[p2->b] + 32768;
+          int y = ycc_lut.r_y[p2->r] + ycc_lut.g_y[p2->g] + ycc_lut.b_y[p2->b] + 32768;
+          *out2 = (y>>16) - 128;
+        }
+    }
+}
+
+/* Extracts Cb */
+void 
+IW44Image::Transform::Encode::RGB_to_Cb(const GPixel *p, int w, int h, int rowsize, 
+                       signed char *out, int outrowsize)
+{
+  for (int i=0; i<h; i++, p+=rowsize, out+=outrowsize)
+    {
+      const GPixel *p2 = p;
+      signed char *out2 = out;
+      for (int j=0; j<w; j++,p2++,out2++)
+        {
+          int c = ycc_lut.r_cb[p2->r] + ycc_lut.g_cb[p2->g] + ycc_lut.b_cb[p2->b] + 32768;
           *out2 = max(-128, min(127, c>>16));
         }
     }
@@ -689,20 +789,13 @@ void
 IW44Image::Transform::Encode::RGB_to_Cr(const GPixel *p, int w, int h, int rowsize, 
                        signed char *out, int outrowsize)
 {
-  int rmul[256], gmul[256], bmul[256];
-  for (int k=0; k<256; k++)
-    {
-      rmul[k] = (int)((k*0x10000)*rgb_to_ycc[1][0]);
-      gmul[k] = (int)((k*0x10000)*rgb_to_ycc[1][1]);
-      bmul[k] = (int)((k*0x10000)*rgb_to_ycc[1][2]);
-    }
   for (int i=0; i<h; i++, p+=rowsize, out+=outrowsize)
     {
       const GPixel *p2 = p;
       signed char *out2 = out;
       for (int j=0; j<w; j++,p2++,out2++)
         {
-          int c = rmul[p2->r] + gmul[p2->g] + bmul[p2->b] + 32768;
+          int c = ycc_lut.r_cr[p2->r] + ycc_lut.g_cr[p2->g] + ycc_lut.b_cr[p2->b] + 32768;
           *out2 = max(-128, min(127, c>>16));
         }
     }
@@ -1307,32 +1400,17 @@ IW44Image::Codec::Encode::estimate_decibel(float frac)
         }
       xmse[blockno] = mse / 1024;
     }
+
   // Compute partition point
-  int n = 0;
   int m = map.nb - 1;
-  int p = (int)floor(m*(1.0-frac)+0.5);
-  p = (p>m ? m : (p<0 ? 0 : p));
-  float pivot = 0;
-  // Partition array
-  while (n < p)
-    {
-      int l = n;
-      int h = m;
-      if (xmse[l] > xmse[h]) { float tmp=xmse[l]; xmse[l]=xmse[h]; xmse[h]=tmp; }
-      pivot = xmse[(l+h)/2];
-      if (pivot < xmse[l]) { float tmp=pivot; pivot=xmse[l]; xmse[l]=tmp; }
-      if (pivot > xmse[h]) { float tmp=pivot; pivot=xmse[h]; xmse[h]=tmp; }
-      while (l < h)
-        {
-          if (xmse[l] > xmse[h]) { float tmp=xmse[l]; xmse[l]=xmse[h]; xmse[h]=tmp; }
-          while (xmse[l]<pivot || (xmse[l]==pivot && l<h)) l++;
-          while (xmse[h]>pivot) h--;
-        }
-      if (p>=l) 
-        n = l;
-      else 
-        m = l-1;
-    }
+  int p = (int)floor(m * (1.0 - frac) + 0.5);
+  p = (p > m ? m : (p < 0 ? 0 : p));
+  
+  // Standardized, branch-optimized quickselect
+  if (p > 0 && p < map.nb) {
+    std::nth_element(xmse, xmse + p, xmse + map.nb);
+  }
+
   // Compute average mse
   float mse = 0;
   for (i=p; i<map.nb; i++)
@@ -1343,8 +1421,6 @@ IW44Image::Codec::Encode::estimate_decibel(float frac)
   float decibel = (float)(10.0 * log ( factor * factor / mse ) / 2.302585125);
   return decibel;
 }
-
-
 
 
 //////////////////////////////////////////////////////
