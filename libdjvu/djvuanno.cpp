@@ -210,12 +210,11 @@ GLObject::GLObject(const char * xname, const GPList<GLObject> & xlist) :
       type(LIST), name(xname), list(xlist) {}
 
 
-static GUTF8String make_c_string(GUTF8String string)
+static GUTF8String make_c_string(const GUTF8String &string)
 {
-  GUTF8String buffer;
+  GUTF8String buffer("\"");
   const char *data = (const char*)string;
   int length = string.length();
-  buffer = GUTF8String("\"");
   while (*data && length>0) 
     {
       int span = 0;
@@ -224,7 +223,7 @@ static GUTF8String make_c_string(GUTF8String string)
         span++;
       if (span > 0) 
         {  
-          buffer = buffer + GUTF8String(data, span);
+          buffer += GUTF8String(data, span);
           data += span;
           length -= span;
         }  
@@ -239,12 +238,12 @@ static GUTF8String make_c_string(GUTF8String string)
               buf[1] = tr1[i];
           if (buf[1]<'0' || buf[1]>'3')
             buf[2] = 0;
-          buffer = buffer + GUTF8String(buf);
+          buffer += buf;
           data += 1;
           length -= 1;
         }
     }
-  buffer = buffer + GUTF8String("\"");
+  buffer += '"';
   return buffer;
 }
 
@@ -508,16 +507,12 @@ GLParser::get_token(const char * & start)
 //   else
 //     {
 //>
-       GUTF8String str;
-       while(1)
-	 {
-           char ch=*start++;
-           if (!ch)
-             G_THROW( ByteStream::EndOfFile );
-           if (ch==')') { start--; break; }
-           if (isspace(ch)) break;
-           str+=ch;
-	 }
+       const char *token_start = start;
+       while (*start && *start != ')' && !isspace((unsigned char)*start))
+         start++;
+       if (token_start == start)
+         G_THROW( ByteStream::EndOfFile );
+       GUTF8String str(token_start, (int)(start - token_start));
        return GLToken(GLToken::OBJECT, new GLObject(GLObject::SYMBOL, str));
 //< Changed for WinDjView project
 //     }
@@ -766,9 +761,9 @@ GUTF8String
 DjVuANT::read_raw(ByteStream & str)
 {
    GUTF8String raw;
-   char buffer[1024];
+   char buffer[16384];
    int length;
-   while((length=str.read(buffer, 1024)))
+   while((length=str.read(buffer, sizeof(buffer))))
       raw+=GUTF8String(buffer, length);
    return raw;
 }
@@ -1134,19 +1129,20 @@ DjVuANT::get_metadata(GLParser & parser)
         { 
           G_TRY 
             {
-              for(int obj_num=0;obj_num<obj.get_list().size();obj_num++)
+              int total_entries = obj.get_list().size();
+              mdata.reserve(mdata.size() + total_entries);
+              GPList<GLObject> &meta_list = obj.get_list();
+              for(GPosition el_pos = meta_list; el_pos; ++el_pos)
                 {
-                  GLObject & el=*obj[obj_num];
+                  GLObject & el = *meta_list[el_pos];
                   const int type = el.get_type();
-                  if (type == GLObject::LIST)
+                  if (type == GLObject::LIST && el.get_list().size() >= 1)
                     { 
-                      const GUTF8String & name=el.get_name(); 
-//< Changed for WinDjView Extended project
-                      //mdata[name]=(el[0])->get_string();
-					  GMap<GUTF8String, GUTF8String> map_data;
-                      map_data[name]=(el[0])->get_string();
-					  mdata.push_back(map_data);
-//>
+                      const GUTF8String & name = el.get_name(); 
+                      GPosition first_val_pos = el.get_list();
+                      GMap<GUTF8String, GUTF8String> map_data;
+                      map_data[name] = el.get_list()[first_val_pos]->get_string();
+                      mdata.push_back(map_data);
                     }
                 }
             } 
@@ -1230,61 +1226,61 @@ DjVuANT::get_map_areas(GLParser & parser)
             if (shape->get_name()==GMapArea::RECT_TAG)
             {
               DEBUG_MSG("it's a rectangle.\n");
-//<Changed for WinDjView project
               if (shape->get_list().size() == 4) {
-//>
-              GRect grect((*shape)[0]->get_number(),
-                          (*shape)[1]->get_number(),
-                          (*shape)[2]->get_number(),
-                          (*shape)[3]->get_number());
-              GP<GMapRect> map_rect=GMapRect::create(grect);
-              map_area=(GMapRect *)map_rect;
-//<Changed for WinDjView project
+                GPList<GLObject> &slist = shape->get_list();
+                GPosition p = slist;
+                int x0 = slist[p]->get_number(); ++p;
+                int y0 = slist[p]->get_number(); ++p;
+                int w  = slist[p]->get_number(); ++p;
+                int h  = slist[p]->get_number();
+                GRect grect(x0, y0, w, h);
+                GP<GMapRect> map_rect=GMapRect::create(grect);
+                map_area=(GMapRect *)map_rect;
               }
-//>
             } else if (shape->get_name()==GMapArea::POLY_TAG)
             {
               DEBUG_MSG("it's a polygon.\n");
-//<Changed for WinDjView project
               if (shape->get_list().size() % 2 == 0) {
-//>
-              int points=shape->get_list().size()/2;
-              GTArray<int> xx(points-1), yy(points-1);
-              for(int i=0;i<points;i++)
-              {
-                xx[i]=(*shape)[2*i]->get_number();
-                yy[i]=(*shape)[2*i+1]->get_number();
+                int points=shape->get_list().size()/2;
+                GTArray<int> xx(points-1), yy(points-1);
+                GPList<GLObject> &shape_list = shape->get_list();
+                GPosition pos = shape_list;
+                for(int i=0; i<points && pos; i++)
+                {
+                  xx[i]=shape_list[pos]->get_number(); ++pos;
+                  if (pos) {
+                    yy[i]=shape_list[pos]->get_number(); ++pos;
+                  }
+                }
+                GP<GMapPoly> map_poly=GMapPoly::create(xx,yy,points);
+                map_area=(GMapPoly *)map_poly;
               }
-              GP<GMapPoly> map_poly=GMapPoly::create(xx,yy,points);
-              map_area=(GMapPoly *)map_poly;
-//<Changed for WinDjView project
-              }
-//>
             } else if (shape->get_name()==GMapArea::OVAL_TAG)
             {
-//<Changed for WinDjView project
               if (shape->get_list().size() == 4) {
-//>
-              DEBUG_MSG("it's an ellipse.\n");
-              GRect grect((*shape)[0]->get_number(),
-                          (*shape)[1]->get_number(),
-                          (*shape)[2]->get_number(),
-                          (*shape)[3]->get_number());
-              GP<GMapOval> map_oval=GMapOval::create(grect);
-              map_area=(GMapOval *)map_oval;
-//<Changed for WinDjView project
+                DEBUG_MSG("it's an ellipse.\n");
+                GPList<GLObject> &slist = shape->get_list();
+                GPosition p = slist;
+                int x0 = slist[p]->get_number(); ++p;
+                int y0 = slist[p]->get_number(); ++p;
+                int w  = slist[p]->get_number(); ++p;
+                int h  = slist[p]->get_number();
+                GRect grect(x0, y0, w, h);
+                GP<GMapOval> map_oval=GMapOval::create(grect);
+                map_area=(GMapOval *)map_oval;
               }
-//>
             }
-//< Changed for WinDjView project
             else if (shape->get_name()==GMapArea::TEXT_TAG)
             {
               DEBUG_MSG("it's a text.\n");
               if (shape->get_list().size() == 4) {
-                GRect grect((*shape)[0]->get_number(),
-                            (*shape)[1]->get_number(),
-                            (*shape)[2]->get_number(),
-                            (*shape)[3]->get_number());
+                GPList<GLObject> &slist = shape->get_list();
+                GPosition p = slist;
+                int x0 = slist[p]->get_number(); ++p;
+                int y0 = slist[p]->get_number(); ++p;
+                int w  = slist[p]->get_number(); ++p;
+                int h  = slist[p]->get_number();
+                GRect grect(x0, y0, w, h);
                 GP<GMapRect> map_text=GMapRect::create(grect);
                 map_text->is_text=true;
                 map_text->opacity=100;
@@ -1296,17 +1292,20 @@ DjVuANT::get_map_areas(GLParser & parser)
               DEBUG_MSG("it's a line.\n");
               if (shape->get_list().size() == 4) {
                 GTArray<int> xx(1), yy(1);
-                for(int i=0;i<2;i++)
+                GPList<GLObject> &slist = shape->get_list();
+                GPosition pos = slist;
+                for(int i=0; i<2 && pos; i++)
                 {
-                  xx[i]=(*shape)[2*i]->get_number();
-                  yy[i]=(*shape)[2*i+1]->get_number();
+                  xx[i]=slist[pos]->get_number(); ++pos;
+                  if (pos) {
+                    yy[i]=slist[pos]->get_number(); ++pos;
+                  }
                 }
                 GP<GMapPoly> map_line=GMapPoly::create(xx,yy,2,true);
                 map_line->is_line=true;
                 map_area=(GMapPoly *)map_line;
               }
             }
-//>
           }
         
           if (map_area)
@@ -1471,29 +1470,30 @@ DjVuANT::encode_raw(void) const
                         (hor_align>=align_strings_size))?ALIGN_UNSPEC:hor_align]
         +" "+align_strings[((ver_align<ALIGN_UNSPEC)||
                             (ver_align>=align_strings_size))?ALIGN_UNSPEC:ver_align]+")";
-      parser.parse(buffer);
-   }
       //*** Metadata
    del_all_items(METADATA_TAG, parser);
 //< Changed for WinDjView Extended project
-   //if (!metadata.isempty())
-   if (metadata.size() > 0)
+   if (!metadata.empty())
 //>
      {
-       GUTF8String mdatabuffer("(");
-       mdatabuffer +=  METADATA_TAG ;
+       GUTF8String mdatabuffer("(" METADATA_TAG);
 //< Changed for WinDjView Extended project
-//       for (GPosition pos=metadata; pos; ++pos)
-//       mdatabuffer +=" (" + metadata.key(pos) + make_c_string(metadata[pos]) + ")";
-//         mdatabuffer +=" (" + metadata.key(pos) + " " + make_c_string(metadata[pos]) + ")";
-	   for (UINT i = 0; i < metadata.size(); ++i)
-	   { 
-		 GPosition pos = metadata[i];
-         mdatabuffer +=" (" + metadata[i].key(pos) + " " + make_c_string(metadata[i][pos]) + ")"; //изм.2
-	   }
+       for (size_t i = 0; i < metadata.size(); ++i)
+       { 
+         GPosition pos = metadata[i];
+         if (pos)
+         {
+           mdatabuffer += " (";
+           mdatabuffer += metadata[i].key(pos);
+           mdatabuffer += " ";
+           mdatabuffer += make_c_string(metadata[i][pos]);
+           mdatabuffer += ")";
+         }
+       }
 //>
-
        mdatabuffer += " )";
+       parser.parse(mdatabuffer);
+     }
        parser.parse(mdatabuffer);
      }
       //*** XMP Metadata
@@ -1525,11 +1525,14 @@ DjVuANT::encode_raw(void) const
 bool
 DjVuANT::is_empty(void) const
 {
-   GUTF8String raw=encode_raw();
-   for(int i=raw.length()-1;i>=0;i--)
-      if (isspace(raw[i])) raw.setat(i, 0);
-      else break;
-   return raw.length()==0;
+   return (bg_color == default_bg_color &&
+           zoom == ZOOM_UNSPEC &&
+           mode == MODE_UNSPEC &&
+           hor_align == ALIGN_UNSPEC &&
+           ver_align == ALIGN_UNSPEC &&
+           map_areas.size() == 0 &&
+           metadata.empty() &&
+           xmpmetadata.length() == 0);
 }
 
 GP<DjVuANT>
@@ -1670,3 +1673,4 @@ DjVuAnno::merge(const GP<DjVuAnno> & anno)
 using namespace DJVU;
 # endif
 #endif
+
