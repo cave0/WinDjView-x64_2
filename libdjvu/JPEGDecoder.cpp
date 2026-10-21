@@ -232,8 +232,14 @@ JPEGImage::get_pixmap()
 	while (nRowLength % 4 != 0)
 		++nRowLength;
 
-	for (int y = 0; y < sz.cy; ++y, pBits += nRowLength)
-		memcpy((*pm)[y], pBits, sz.cx*3);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+	for (int y = 0; y < sz.cy; ++y)
+	{
+		const unsigned char* srcRow = pBits + (size_t)y * nRowLength;
+		memcpy((*pm)[y], srcRow, sz.cx * 3);
+	}
 
 	::DeleteObject(hBitmap);
 	pIPicture->Release();
@@ -334,9 +340,10 @@ JPEGDecoder::decode(ByteStream & bs,GPixmap &pix)
   /* JSAMPLEs per row in output buffer */
   row_stride = cinfo.output_width * cinfo.output_components;
 
-  /* Make a one-row-high sample array that will go away when done with image */
+  /* Allocate a 16-row batch matching typical JPEG MCU height */
+  const int BATCH_LINES = 16;
   buffer = (*cinfo.mem->alloc_sarray)
-    ((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1);
+    ((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, BATCH_LINES);
 
   pix.init(cinfo.output_height, cinfo.output_width);
 
@@ -344,27 +351,35 @@ JPEGDecoder::decode(ByteStream & bs,GPixmap &pix)
 
   while (cinfo.output_scanline < cinfo.output_height)
   {
-    int line = cinfo.output_scanline;
-    (void) jpeg_read_scanlines(&cinfo, buffer, 1);
-    GPixel *row = pix[line];
+    int start_line = cinfo.output_scanline;
+    int lines_read = jpeg_read_scanlines(&cinfo, buffer, BATCH_LINES);
 
-    const unsigned char *src = (const unsigned char *)buffer[0];
-    if ( isGrey == 1 )
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+    for (int l = 0; l < lines_read; ++l)
     {
-      for (i = 0; i < (int)cinfo.output_width; i++)
+      int line = start_line + l;
+      GPixel *row = pix[line];
+      const unsigned char *src = (const unsigned char *)buffer[l];
+
+      if ( isGrey == 1 )
       {
-        unsigned char g = src[i];
-        row[i].r = g;
-        row[i].g = g;
-        row[i].b = g;
-      }
-    }else
-    {
-      for (i = 0; i < (int)cinfo.output_width; i++, src += 3)
+        for (int i = 0; i < (int)cinfo.output_width; i++)
+        {
+          unsigned char g = src[i];
+          row[i].r = g;
+          row[i].g = g;
+          row[i].b = g;
+        }
+      }else
       {
-        row[i].r = src[0];
-        row[i].g = src[1];
-        row[i].b = src[2];
+        for (int i = 0; i < (int)cinfo.output_width; i++, src += 3)
+        {
+          row[i].r = src[0];
+          row[i].g = src[1];
+          row[i].b = src[2];
+        }
       }
     }
   }
