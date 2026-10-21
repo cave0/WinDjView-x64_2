@@ -222,7 +222,8 @@ GThread::current()
 GMonitor::GMonitor()
   : ok(0), count(1)
 {
-  InitializeCriticalSection(&cs);
+  // 4000 spin cycles before kernel transition (optimal for Hyper-Threaded Core i5)
+  InitializeCriticalSectionAndSpinCount(&cs, 4000);
   InitializeConditionVariable(&cv);
   locker = GetCurrentThreadId();
   ok = 1;
@@ -231,7 +232,9 @@ GMonitor::GMonitor()
 GMonitor::~GMonitor()
 {
   ok = 0;
+  EnterCriticalSection(&cs);
   WakeAllConditionVariable(&cv);
+  LeaveCriticalSection(&cs);
   DeleteCriticalSection(&cs); 
 }
 
