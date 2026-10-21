@@ -204,7 +204,7 @@ GThread::terminate()
 int
 GThread::yield()
 {
-  Sleep(0);
+  SwitchToThread();
   return 0;
 }
 
@@ -219,17 +219,11 @@ GThread::current()
 #if THREADMODEL==WINTHREADS || defined(WIN32_MONITOR)
 //>
 
-struct thr_waiting {
-  struct thr_waiting *next;
-  struct thr_waiting *prev;
-  BOOL   waiting;
-  HANDLE gwait;
-};
-
 GMonitor::GMonitor()
-  : ok(0), count(1), head(0), tail(0)
+  : ok(0), count(1)
 {
   InitializeCriticalSection(&cs);
+  InitializeConditionVariable(&cv);
   locker = GetCurrentThreadId();
   ok = 1;
 }
@@ -237,10 +231,7 @@ GMonitor::GMonitor()
 GMonitor::~GMonitor()
 {
   ok = 0;
-  EnterCriticalSection(&cs);
-  for (struct thr_waiting *w=head; w; w=w->next)
-    SetEvent(w->gwait);
-  LeaveCriticalSection(&cs);
+  WakeAllConditionVariable(&cv);
   DeleteCriticalSection(&cs); 
 }
 
@@ -281,13 +272,7 @@ GMonitor::signal()
       DWORD self = GetCurrentThreadId();
       if (count>0 || self!=locker)
         G_THROW( ERR_MSG("GThreads.not_acq_signal") );
-      for (struct thr_waiting *w=head; w; w=w->next)
-        if (w->waiting) 
-          {
-            SetEvent(w->gwait);
-            w->waiting = FALSE;
-            break; // Only one thread is allowed to run!
-          }
+      WakeConditionVariable(&cv);
     }
 }
 
@@ -299,12 +284,7 @@ GMonitor::broadcast()
       DWORD self = GetCurrentThreadId();
       if (count>0 || self!=locker)
         G_THROW( ERR_MSG("GThreads.not_acq_broad") );
-      for (struct thr_waiting *w=head; w; w=w->next)
-        if (w->waiting)
-            {
-              SetEvent(w->gwait);
-              w->waiting = FALSE;
-            }
+      WakeAllConditionVariable(&cv);
     }
 }
 
@@ -318,28 +298,11 @@ GMonitor::wait()
   // Wait
   if (ok)
     {
-      // Prepare wait record
-      struct thr_waiting waitrec;
-      waitrec.waiting = TRUE;
-      waitrec.gwait = CreateEvent(NULL,FALSE,FALSE,NULL);
-      waitrec.next = 0;
-      waitrec.prev = tail;
-      // Link wait record (protected by critical section)
-      *(waitrec.next ? &waitrec.next->prev : &tail) = &waitrec; 
-      *(waitrec.prev ? &waitrec.prev->next : &head) = &waitrec;
-      // Start wait
       int sav_count = count;
       count = 1;
-      LeaveCriticalSection(&cs);
-      WaitForSingleObject(waitrec.gwait,INFINITE);
-      // Re-acquire
-      EnterCriticalSection(&cs);
+      SleepConditionVariableCS(&cv, &cs, INFINITE);
       count = sav_count;
       locker = self;
-      // Unlink wait record
-      *(waitrec.next ? &waitrec.next->prev : &tail) = waitrec.prev;
-      *(waitrec.prev ? &waitrec.prev->next : &head) = waitrec.next;
-      CloseHandle(waitrec.gwait);
     }
 }
 
@@ -353,28 +316,11 @@ GMonitor::wait(unsigned long timeout)
   // Wait
   if (ok)
     {
-      // Prepare wait record
-      struct thr_waiting waitrec;
-      waitrec.waiting = TRUE;
-      waitrec.gwait = CreateEvent(NULL,FALSE,FALSE,NULL);
-      waitrec.next = 0;
-      waitrec.prev = tail;
-      // Link wait record (protected by critical section)
-      *(waitrec.prev ? &waitrec.prev->next : &head) = &waitrec;
-      *(waitrec.next ? &waitrec.next->prev : &tail) = &waitrec; 
-      // Start wait
       int sav_count = count;
       count = 1;
-      LeaveCriticalSection(&cs);
-      WaitForSingleObject(waitrec.gwait,timeout);
-      // Re-acquire
-      EnterCriticalSection(&cs);
+      SleepConditionVariableCS(&cv, &cs, timeout);
       count = sav_count;
       locker = self;
-      // Unlink wait record
-      *(waitrec.next ? &waitrec.next->prev : &tail) = waitrec.prev;
-      *(waitrec.prev ? &waitrec.prev->next : &head) = waitrec.next;
-      CloseHandle(waitrec.gwait);
     }
 }
 
@@ -671,11 +617,7 @@ GSafeFlags::operator=(long xflags)
 
 GSafeFlags::operator long(void) const
 {
-   long f;
-   ((GSafeFlags *) this)->enter();
-   f=flags;
-   ((GSafeFlags *) this)->leave();
-   return f;
+   return flags;
 }
 
 bool
