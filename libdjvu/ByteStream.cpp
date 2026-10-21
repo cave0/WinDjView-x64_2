@@ -532,12 +532,19 @@ ByteStream::write24(unsigned int card)
 void 
 ByteStream::write32(unsigned int card)
 {
-  unsigned char c[4];
+#if defined(_MSC_VER)
+  unsigned int val = _byteswap_ulong(card);
+#elif defined(__GNUC__) || defined(__clang__)
+  unsigned int val = __builtin_bswap32(card);
+#else
+  unsigned int val;
+  unsigned char *c = (unsigned char*)&val;
   c[0] = (card>>24) & 0xff;
   c[1] = (card>>16) & 0xff;
   c[2] = (card>>8) & 0xff;
   c[3] = (card) & 0xff;
-  if (writall((void*)c, sizeof(c)) != sizeof(c))
+#endif
+  if (writall((void*)&val, sizeof(val)) != sizeof(val))
     G_THROW(strerror(errno));   //  (No error in the DjVuMessageFile)
 }
 
@@ -571,10 +578,17 @@ ByteStream::read24()
 unsigned int 
 ByteStream::read32()
 {
-  unsigned char c[4];
-  if (readall((void*)c, sizeof(c)) != sizeof(c))
+  unsigned int val;
+  if (readall((void*)&val, sizeof(val)) != sizeof(val))
     G_THROW( ByteStream::EndOfFile );
+#if defined(_MSC_VER)
+  return _byteswap_ulong(val);
+#elif defined(__GNUC__) || defined(__clang__)
+  return __builtin_bswap32(val);
+#else
+  unsigned char *c = (unsigned char*)&val;
   return (((((c[0]<<8)+c[1])<<8)+c[2])<<8)+c[3];
+#endif
 }
 
 
@@ -769,7 +783,7 @@ ByteStream::Stdio::tell(void) const
 int
 ByteStream::Stdio::seek(long offset, int whence, bool nothrow)
 {
-  if (whence==SEEK_SET && offset>=0 && offset==ftell(fp))
+  if (whence==SEEK_SET && offset>=0 && offset==pos)
     return 0;
   clearerr(fp);
   if (fseek(fp, offset, whence)) 
