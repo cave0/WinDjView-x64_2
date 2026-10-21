@@ -33,13 +33,8 @@ PCH = "$(INTDIR)\WinDjView.pch"
 CPP_PCH = /Yu"stdafx.h"
 CPP_PCH_CREATE = /Yc"stdafx.h"
 
-!IFDEF X64
 # Ivy Bridge (Core i5-3230M) has AVX but not AVX2
 ARCH_FLAGS = /arch:AVX
-!ELSE
-# Core i5-3230M supports AVX even in 32-bit mode
-ARCH_FLAGS = /arch:AVX
-!ENDIF
 
 CPP_FLAGS = $(CPP_FLAGS) /nologo /c /MT /W3 /EHsc /O2 /GL /GR- /Oi /Ot /Gy /Gw $(ARCH_FLAGS) \
             /openmp /D "WIN32" $(WIN64) /D "NDEBUG" /D "_WINDOWS" /Fp$(PCH) /Fo"$(INTDIR)/"
