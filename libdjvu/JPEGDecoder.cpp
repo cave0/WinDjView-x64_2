@@ -348,22 +348,23 @@ JPEGDecoder::decode(ByteStream & bs,GPixmap &pix)
     (void) jpeg_read_scanlines(&cinfo, buffer, 1);
     GPixel *row = pix[line];
 
+    const unsigned char *src = (const unsigned char *)buffer[0];
     if ( isGrey == 1 )
     {
       for (i = 0; i < (int)cinfo.output_width; i++)
       {
-        unsigned char g = (unsigned char)buffer[0][i];
+        unsigned char g = src[i];
         row[i].r = g;
         row[i].g = g;
         row[i].b = g;
       }
     }else
     {
-      for (i = 0; i < (int)cinfo.output_width; i++)
+      for (i = 0; i < (int)cinfo.output_width; i++, src += 3)
       {
-        row[i].r = (unsigned char)buffer[0][i * 3 + 0];
-        row[i].g = (unsigned char)buffer[0][i * 3 + 1];
-        row[i].b = (unsigned char)buffer[0][i * 3 + 2];
+        row[i].r = src[0];
+        row[i].g = src[1];
+        row[i].b = src[2];
       }
     }
   }
