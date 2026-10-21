@@ -86,7 +86,16 @@ static DjVuPortcaster *pcaster;
 DjVuPortcaster *
 DjVuPort::get_portcaster(void)
 {
-   if (!pcaster) pcaster = new DjVuPortcaster();
+   if (!pcaster)
+   {
+      DjVuPortcaster *new_caster = new DjVuPortcaster();
+#if defined(WIN32)
+      if (InterlockedCompareExchangePointer((void* volatile*)&pcaster, new_caster, 0) != 0)
+         delete new_caster;
+#else
+      pcaster = new_caster;
+#endif
+   }
    return pcaster;
 }
 
@@ -119,7 +128,16 @@ int		DjVuPort::corpse_num;
 void *
 DjVuPort::operator new (size_t sz)
 {
-  if (!corpse_lock) corpse_lock=new GCriticalSection();
+  if (!corpse_lock)
+  {
+    GCriticalSection *new_lock = new GCriticalSection();
+#if defined(WIN32)
+    if (InterlockedCompareExchangePointer((void* volatile*)&corpse_lock, new_lock, 0) != 0)
+      delete new_lock;
+#else
+    corpse_lock = new_lock;
+#endif
+  }
   
   // Loop until we manage to allocate smth, which is not mentioned in
   // the 'corpse' list. Thus we will avoid allocating a new DjVuPort
@@ -447,8 +465,11 @@ void
 DjVuPortcaster::compute_closure(const DjVuPort * src, GPList<DjVuPort> &list, bool sorted)
 {
    GCriticalSectionLock lock(&map_lock);
+   // Fast-path: return immediately if source has no routed destinations
+   if (!route_map.contains(src))
+      return;
+
    GMap<const void*, void*> set;
-   if (route_map.contains(src))
    {
       GList<void *> & list=*(GList<void *> *) route_map[src];
       for(GPosition pos=list;pos;++pos)
