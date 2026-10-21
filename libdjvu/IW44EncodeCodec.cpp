@@ -325,8 +325,12 @@ sse_fv_1(short* &q, short* e, int s, int s3)
       __m128i a_hi = _mm_cvtepi16_epi32(_mm_srli_si128(a, 8));
       __m128i b_hi = _mm_cvtepi16_epi32(_mm_srli_si128(b, 8));
 
-      __m128i res_lo = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_lo, w9), b_lo), d8), 4);
-      __m128i res_hi = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_hi, w9), b_hi), d8), 4);
+      // Fast shift-and-add: (a << 3) + a = 9*a (2 cycles vs 10 cycles for pmulld)
+      __m128i a9_lo = _mm_add_epi32(_mm_slli_epi32(a_lo, 3), a_lo);
+      __m128i a9_hi = _mm_add_epi32(_mm_slli_epi32(a_hi, 3), a_hi);
+
+      __m128i res_lo = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(a9_lo, b_lo), d8), 4);
+      __m128i res_hi = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(a9_hi, b_hi), d8), 4);
 
       __m128i delta = _mm_packs_epi32(res_lo, res_hi);
 
@@ -364,8 +368,12 @@ sse_fv_2(short* &q, short* e, int s, int s3)
       __m128i a_hi = _mm_cvtepi16_epi32(_mm_srli_si128(a, 8));
       __m128i b_hi = _mm_cvtepi16_epi32(_mm_srli_si128(b, 8));
 
-      __m128i res_lo = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_lo, w9), b_lo), d16), 5);
-      __m128i res_hi = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_hi, w9), b_hi), d16), 5);
+      // Fast shift-and-add: (a << 3) + a = 9*a (2 cycles vs 10 cycles for pmulld)
+      __m128i a9_lo = _mm_add_epi32(_mm_slli_epi32(a_lo, 3), a_lo);
+      __m128i a9_hi = _mm_add_epi32(_mm_slli_epi32(a_hi, 3), a_hi);
+
+      __m128i res_lo = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(a9_lo, b_lo), d16), 5);
+      __m128i res_hi = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(a9_hi, b_hi), d16), 5);
 
       __m128i delta = _mm_packs_epi32(res_lo, res_hi);
 
@@ -1331,28 +1339,21 @@ IW44Image::Codec::Encode::encode_buckets(ZPCodec &zp, int bit, int band,
 float
 IW44Image::Codec::Encode::estimate_decibel(float frac)
 {
-  int i,j;
-  const float *q;
-  // Fill norm arrays
-  float norm_lo[16];
-  float norm_hi[10];
-  // -- lo coefficients
-  q = iw_norm;
-  for (i=j=0; i<4; j++)
-    norm_lo[i++] = *q++;
-  for (j=0; j<4; j++)
-    norm_lo[i++] = *q;
-  q += 1;
-  for (j=0; j<4; j++)
-    norm_lo[i++] = *q;
-  q += 1;
-  for (j=0; j<4; j++)
-    norm_lo[i++] = *q;
-  q += 1;
-  // -- hi coefficients
-  norm_hi[0] = 0;
-  for (j=1; j<10; j++)
-    norm_hi[j] = *q++;
+  int i;
+  // Precomputed constant norm tables (avoids recomputing every slice)
+  static const float norm_lo[16] = {
+    2.627989e+03F, 1.832893e+02F, 1.832959e+02F, 5.114690e+01F,
+    4.583344e+01F, 4.583344e+01F, 4.583344e+01F, 4.583344e+01F,
+    4.583462e+01F, 4.583462e+01F, 4.583462e+01F, 4.583462e+01F,
+    1.279225e+01F, 1.279225e+01F, 1.279225e+01F, 1.279225e+01F
+  };
+  static const float norm_hi[10] = {
+    0.0F,
+    1.149671e+01F, 1.149712e+01F, 3.218888e+00F,
+    2.999281e+00F, 2.999476e+00F, 8.733161e-01F,
+    1.074451e+00F, 1.074511e+00F, 4.289318e-01F
+  };
+
   // Initialize mse array
   float *xmse;
   GPBuffer<float> gxmse(xmse,map.nb);
@@ -1363,11 +1364,11 @@ IW44Image::Codec::Encode::estimate_decibel(float frac)
       // Iterate over bands
       for (int bandno=0; bandno<10; bandno++)
         {
-          int fbucket = bandbuckets[bandno].start;
-          int nbucket = bandbuckets[bandno].size;
+          const int fbucket = bandbuckets[bandno].start;
+          const int nbucket = bandbuckets[bandno].size;
           IW44Image::Block &blk = map.blocks[blockno];
           IW44Image::Block &eblk = emap.blocks[blockno];
-          float norm = norm_hi[bandno];
+          const float norm = norm_hi[bandno];
           for (int buckno=0; buckno<nbucket; buckno++)
             {
               const short *pcoeff = blk.data(fbucket+buckno);
@@ -1376,23 +1377,40 @@ IW44Image::Codec::Encode::estimate_decibel(float frac)
                 {
                   if (epcoeff)
                     {
-                      for (i=0; i<16; i++)
+                      if (bandno == 0)
                         {
-                          if (bandno == 0)
-                            norm = norm_lo[i];
-                          float delta = (float)(pcoeff[i]<0 ? -pcoeff[i] : pcoeff[i]);
-                          delta = delta - epcoeff[i];
-                          mse = mse + norm * delta * delta;
+                          for (i=0; i<16; i++)
+                            {
+                              float delta = (float)(pcoeff[i]<0 ? -pcoeff[i] : pcoeff[i]) - epcoeff[i];
+                              mse += norm_lo[i] * delta * delta;
+                            }
+                        }
+                      else
+                        {
+                          for (i=0; i<16; i++)
+                            {
+                              float delta = (float)(pcoeff[i]<0 ? -pcoeff[i] : pcoeff[i]) - epcoeff[i];
+                              mse += norm * delta * delta;
+                            }
                         }
                     }
                   else
                     {
-                      for (i=0; i<16; i++)
+                      if (bandno == 0)
                         {
-                          if (bandno == 0)
-                            norm = norm_lo[i];
-                          float delta = (float)(pcoeff[i]);
-                          mse = mse + norm * delta * delta;
+                          for (i=0; i<16; i++)
+                            {
+                              float delta = (float)(pcoeff[i]);
+                              mse += norm_lo[i] * delta * delta;
+                            }
+                        }
+                      else
+                        {
+                          for (i=0; i<16; i++)
+                            {
+                              float delta = (float)(pcoeff[i]);
+                              mse += norm * delta * delta;
+                            }
                         }
                     }
                 }
