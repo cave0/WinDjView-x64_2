@@ -456,13 +456,13 @@ GBitmapScaler::scale( const GRect &provided_input, const GBitmap &input,
         upper = get_line(fy2, required_red, provided_input, input);
         // Compute line
         unsigned char *dest = lbuffer+1;
-        const short *deltas = & interp[fy&FRACMASK][256];
+        const int frac = fy & FRACMASK;
         for(unsigned char const * const edest=(unsigned char const *)dest+bufw;
           dest<edest;upper++,lower++,dest++)
         {
           const int l = *lower;
           const int u = *upper;
-          *dest = l + deltas[u-l];
+          *dest = (unsigned char)(l + (((u - l) * frac + FRACSIZE2) >> FRACBITS));
         }
       }
       // Perform horizontal interpolation
@@ -477,10 +477,10 @@ GBitmapScaler::scale( const GRect &provided_input, const GBitmap &input,
           {
             int n = hcoord[x];
             const unsigned char *lower = line + (n>>FRACBITS);
-            const short *deltas = &interp[n&FRACMASK][256];
+            const int frac = n & FRACMASK;
             int l = lower[0];
             int u = lower[1];
-            *dest = l + deltas[u-l];
+            *dest = (unsigned char)(l + (((u - l) * frac + FRACSIZE2) >> FRACBITS));
             dest++;
           }
       }
@@ -654,19 +654,16 @@ GPixmapScaler::scale( const GRect &provided_input, const GPixmap &input,
           }
         // Compute line
         GPixel *dest = lbuffer+1;
-        const short *deltas = & interp[fy&FRACMASK][256];
+        const int frac = fy & FRACMASK;
         for(GPixel const * const edest = (GPixel const *)dest+bufw;
           dest<edest;upper++,lower++,dest++)
         {
           const int lower_r = lower->r;
-          const int delta_r = deltas[(int)upper->r - lower_r];
-          dest->r = lower_r + delta_r;
+          dest->r = (unsigned char)(lower_r + ((((int)upper->r - lower_r) * frac + FRACSIZE2) >> FRACBITS));
           const int lower_g = lower->g;
-          const int delta_g = deltas[(int)upper->g - lower_g];
-          dest->g = lower_g + delta_g;
+          dest->g = (unsigned char)(lower_g + ((((int)upper->g - lower_g) * frac + FRACSIZE2) >> FRACBITS));
           const int lower_b = lower->b;
-          const int delta_b = deltas[(int)upper->b - lower_b];
-          dest->b = lower_b + delta_b;
+          dest->b = (unsigned char)(lower_b + ((((int)upper->b - lower_b) * frac + FRACSIZE2) >> FRACBITS));
         }
       }
       // Perform horizontal interpolation
@@ -681,16 +678,13 @@ GPixmapScaler::scale( const GRect &provided_input, const GPixmap &input,
           {
             const int n = hcoord[x];
             const GPixel *lower = line + (n>>FRACBITS);
-            const short *deltas = &interp[n&FRACMASK][256];
+            const int frac = n & FRACMASK;
             const int lower_r = lower[0].r;
-            const int delta_r = deltas[(int)lower[1].r - lower_r];
-            dest->r = lower_r + delta_r;
+            dest->r = (unsigned char)(lower_r + ((((int)lower[1].r - lower_r) * frac + FRACSIZE2) >> FRACBITS));
             const int lower_g = lower[0].g;
-            const int delta_g = deltas[(int)lower[1].g - lower_g];
-            dest->g = lower_g + delta_g;
+            dest->g = (unsigned char)(lower_g + ((((int)lower[1].g - lower_g) * frac + FRACSIZE2) >> FRACBITS));
             const int lower_b = lower[0].b;
-            const int delta_b = deltas[(int)lower[1].b - lower_b];
-            dest->b = lower_b + delta_b;
+            dest->b = (unsigned char)(lower_b + ((((int)lower[1].b - lower_b) * frac + FRACSIZE2) >> FRACBITS));
           }
       }
     }
