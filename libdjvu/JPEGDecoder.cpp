@@ -121,18 +121,15 @@ JPEGImage::~JPEGImage()
 GP<JPEGImage>
 JPEGImage::create(ByteStream& bs)
 {
-	int block = 1048576;
 	vector<char> buffer;
-	int size = 0;
-
+	char temp[65536];
 	int read;
-	do
+	while ((read = bs.readall(temp, sizeof(temp))) > 0)
 	{
-		buffer.resize(buffer.size() + block);
-		read = bs.readall(&buffer[size], block);
-		size += read;
-	} while (read == block);
+		buffer.insert(buffer.end(), temp, temp + read);
+	}
 
+	int size = static_cast<int>(buffer.size());
 	HGLOBAL hGlobal = ::GlobalAlloc(GMEM_MOVEABLE | GMEM_NODISCARD, size);
 	if (!hGlobal)
 	{
@@ -146,7 +143,10 @@ JPEGImage::create(ByteStream& bs)
 		return NULL;
 	}
 
-	memcpy(pBuf, &buffer[0], size);
+	if (size > 0)
+	{
+		memcpy(pBuf, &buffer[0], size);
+	}
 	::GlobalUnlock(hGlobal);
 
 	JPEGImage* pImage = new JPEGImage();
