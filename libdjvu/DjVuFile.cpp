@@ -110,7 +110,8 @@ public:
 	   // G_TRY {} CATCH; block here is merely to avoid egcs internal error
     G_TRY {
       int cur_pos=str->tell();
-      if (progress_cb && (last_call_pos/256!=cur_pos/256))
+      // Throttle progress notifications to every 64 KB instead of 256 bytes
+      if (progress_cb && ((cur_pos - last_call_pos >= 65536) || (cur_pos < last_call_pos)))
       {
         progress_cb(cur_pos, progress_cl_data);
         last_call_pos=cur_pos;
@@ -553,9 +554,9 @@ DjVuFile::process_incl_chunk(ByteStream & str, int file_num)
   DjVuPortcaster * pcaster=get_portcaster();
   
   GUTF8String incl_str;
-  char buffer[1024];
+  char buffer[4096];
   int length;
-  while((length=str.read(buffer, 1024)))
+  while((length=str.read(buffer, sizeof(buffer))))
     incl_str+=GUTF8String(buffer, length);
   
   // Eat '\n' in the beginning and at the end
@@ -1292,9 +1293,10 @@ DjVuFile::decode(const GP<ByteStream> &gbs)
       GUTF8String str = decode_chunk(chkid, iff.get_bytestream(), djvi, djvu, iw44);
       // Add parameters to the chunk description to give the size and chunk id
       GUTF8String desc;
-      desc.format("\t%5.1f\t%s", chksize/1024.0, (const char*)chkid);
-      // Append the whole thing to the growing file description
-      description = description + str + desc + "\n";
+      desc.format("\t%5.1f\t%s\n", chksize/1024.0, (const char*)chkid);
+      // Append in place to eliminate temporary full-string reallocations
+      description += str;
+      description += desc;
 
       pcaster->notify_chunk_done(this, chkid);
       // Close chunk
@@ -2621,9 +2623,9 @@ DjVuFile::unlink_file(const GP<DataPool> & data, const GUTF8String &name)
     if (chkid=="INCL")
     {
       GUTF8String incl_str;
-      char buffer[1024];
+      char buffer[4096];
       int length;
-      while((length=iff_in.read(buffer, 1024)))
+      while((length=iff_in.read(buffer, sizeof(buffer))))
         incl_str+=GUTF8String(buffer, length);
       
       // Eat '\n' in the beginning and at the end
@@ -2644,10 +2646,10 @@ DjVuFile::unlink_file(const GP<DataPool> & data, const GUTF8String &name)
     } else
     {
       iff_out.put_chunk(chkid);
-      char buffer[1024];
+      char buffer[16384];
       int length;
       for(const GP<ByteStream> gbs(iff_out.get_bytestream());
-        (length=iff_in.read(buffer, 1024));)
+        (length=iff_in.read(buffer, sizeof(buffer)));)
       {
         gbs->writall(buffer, length);
       }
@@ -2764,9 +2766,9 @@ DjVuFile::unlink_file(const GUTF8String &id)
       } else
       {
         GUTF8String incl_str;
-        char buffer[1024];
+        char buffer[4096];
         int length;
-        while((length=iff_in.read(buffer, 1024)))
+        while((length=iff_in.read(buffer, sizeof(buffer))))
           incl_str+=GUTF8String(buffer, length);
         
 	       // Eat '\n' in the beginning and at the end
