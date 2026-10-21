@@ -77,13 +77,20 @@ namespace DJVU {
 
 DjVuFileCache::~DjVuFileCache(void) {}
 
+unsigned long long
+DjVuFileCache::Item::next_tick(void)
+{
+   static unsigned long long tick_counter = 0;
+   return ++tick_counter;
+}
+
 int
 DjVuFileCache::Item::qsort_func(const void * el1, const void * el2)
 {
    const Item * item1=*(Item **) el1;
    const Item * item2=*(Item **) el2;
-   time_t time1=item1->get_time();
-   time_t time2=item2->get_time();
+   unsigned long long time1=item1->get_time();
+   unsigned long long time2=item2->get_time();
    return time1<time2 ? -1 : time1>time2 ? 1 : 0;
 }
 
@@ -180,8 +187,8 @@ DjVuFileCache::clear_to_size(int size)
 	    GP<DjVuFile> file=item->file;
 	    list.del(item->list_pos);
 	    file_cleared(file);
-	    if (cur_size<=0) cur_size=calculate_size();
 	 }
+	 if (cur_size<=0 && list.size()>0) cur_size=calculate_size();
       } else
       {
 	    // Less than 20 elements: no reason to presort
@@ -204,11 +211,8 @@ DjVuFileCache::clear_to_size(int size)
 	    GP<DjVuFile> file=list[oldest_pos]->file;
 	    list.del(oldest_pos);
 	    file_cleared(file);
-
-	       // cur_size *may* become negative because items may change their
-	       // size after they've been added to the cache
-	    if (cur_size<=0) cur_size=calculate_size();
 	 }
+	 if (cur_size<=0 && list.size()>0) cur_size=calculate_size();
       }
    
    DEBUG_MSG("done: current cache size=" << cur_size << "\n");
