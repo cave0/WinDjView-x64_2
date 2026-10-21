@@ -97,6 +97,18 @@ public:
 };
 
   
+static CRITICAL_SECTION &
+get_map_cs(void)
+{
+  static CRITICAL_SECTION cs;
+  static bool initialized = false;
+  if (!initialized) {
+    InitializeCriticalSectionAndSpinCount(&cs, 2000);
+    initialized = true;
+  }
+  return cs;
+}
+
 static GPMap<void *,DjVuProgressTask::Data> &
 get_map(void)
 {
@@ -108,6 +120,8 @@ djvu_progress_callback *
 DjVuProgressTask::set_callback(djvu_progress_callback *_callback)
 { 
   djvu_progress_callback *retval=0;
+  CRITICAL_SECTION &cs = get_map_cs();
+  EnterCriticalSection(&cs);
   if(_callback)
   {
     GMap<void *,GP<DjVuProgressTask::Data> > &map=get_map();
@@ -139,6 +153,7 @@ DjVuProgressTask::set_callback(djvu_progress_callback *_callback)
       map.del(threadID);
     }
   }
+  LeaveCriticalSection(&cs);
   return retval;
 }
 
@@ -147,6 +162,8 @@ DjVuProgressTask::DjVuProgressTask(const char *xtask,int nsteps)
 {
   //  gtask=task;
   {
+    CRITICAL_SECTION &cs = get_map_cs();
+    EnterCriticalSection(&cs);
     GMap<void *,GP<DjVuProgressTask::Data> > &map=get_map();
     void *threadID=GThread::current();
     if(map.contains(threadID))
@@ -163,6 +180,7 @@ DjVuProgressTask::DjVuProgressTask(const char *xtask,int nsteps)
         d.head = this;
       }
     }
+    LeaveCriticalSection(&cs);
   }
 }
 
