@@ -1470,6 +1470,9 @@ DjVuANT::encode_raw(void) const
                         (hor_align>=align_strings_size))?ALIGN_UNSPEC:hor_align]
         +" "+align_strings[((ver_align<ALIGN_UNSPEC)||
                             (ver_align>=align_strings_size))?ALIGN_UNSPEC:ver_align]+")";
+      parser.parse(buffer);
+   }
+
       //*** Metadata
    del_all_items(METADATA_TAG, parser);
 //< Changed for WinDjView Extended project
@@ -1492,8 +1495,6 @@ DjVuANT::encode_raw(void) const
        }
 //>
        mdatabuffer += " )";
-       parser.parse(mdatabuffer);
-     }
        parser.parse(mdatabuffer);
      }
       //*** XMP Metadata
