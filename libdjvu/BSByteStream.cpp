@@ -95,6 +95,9 @@ protected:
   unsigned int decode(void);
 private:
   bool eof;
+  unsigned int *posn;
+  GPBuffer<unsigned int> gposn;
+  int posn_size;
 };
 
 // ========================================
@@ -116,7 +119,7 @@ BSByteStream::BSByteStream(GP<ByteStream> xbs)
 BSByteStream::~BSByteStream() {}
 
 BSByteStream::Decode::Decode(GP<ByteStream> xbs)
-: BSByteStream(xbs), eof(false) {}
+: BSByteStream(xbs), eof(false), posn(0), gposn(posn,0), posn_size(0) {}
 
 void
 BSByteStream::Decode::init(void)
@@ -359,9 +362,17 @@ BSByteStream::Decode::decode(void)
   if (markerpos<1 || markerpos>=size)
     G_THROW( ERR_MSG("ByteStream.corrupt") );
   // Allocate pointers
-  unsigned int *posn;
-  GPBuffer<unsigned int> gposn(posn,blocksize);
-  memset(posn, 0, sizeof(unsigned int)*size);
+  if (posn_size < (int)blocksize)
+    {
+      posn_size = blocksize;
+      if (posn)
+      {
+        gposn.resize(0);
+      }
+    }
+  if (! posn)
+    gposn.resize(posn_size);
+  posn[markerpos] = 0;
   // Prepare count buffer
   int count[256];
   for (i=0; i<256; i++)
@@ -393,7 +404,7 @@ BSByteStream::Decode::decode(void)
   while (last>0)
     {
       unsigned int n = posn[i];
-      unsigned char c = (posn[i]>>24);
+      unsigned char c = (unsigned char)(n>>24);
       data[--last] = c;
       i = count[c] + (n & 0xffffff);
     }
