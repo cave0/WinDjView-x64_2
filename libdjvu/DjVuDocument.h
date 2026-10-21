@@ -828,6 +828,7 @@ protected:
    bool needs_compression_flag;
    bool can_compress_flag;
    bool needs_rename_flag;
+   mutable GUTF8String  int_prefix;
 
    
 
