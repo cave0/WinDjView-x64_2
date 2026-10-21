@@ -254,10 +254,8 @@ protected:
 	vector<DictsByLang> m_dictsByLang;
 
 	HHOOK m_hHook;
-	UINT_PTR m_nTimerID;
 	bool m_bShiftPressed, m_bControlPressed;
 	static LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
-	static void CALLBACK TimerProc(HWND hWnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
 
 	bool m_bOnlyRegisterTypes;
 	int m_nExitCode;
