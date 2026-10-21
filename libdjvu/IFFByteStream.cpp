@@ -239,10 +239,13 @@ IFFByteStream::get_chunk(GUTF8String &chkid, int *rawoffsetptr, int *rawsizeptr)
   offset = seekto = offset + bytes;
   if (bytes != 4)
     G_THROW( ByteStream::EndOfFile );
-  long size = ((unsigned char)buffer[4]<<24) |
-              ((unsigned char)buffer[5]<<16) |
-              ((unsigned char)buffer[6]<<8)  |
-              ((unsigned char)buffer[7]);
+  unsigned long usize = ((unsigned char)buffer[4]<<24) |
+                        ((unsigned char)buffer[5]<<16) |
+                        ((unsigned char)buffer[6]<<8)  |
+                        ((unsigned char)buffer[7]);
+  if ((long)usize < 0)
+    G_THROW( ERR_MSG("IFFByteStream.corrupt_mangled") );
+  long size = (long)usize;
   if (ctx && offset+size > ctx->offEnd)
     G_THROW( ERR_MSG("IFFByteStream.corrupt_mangled") );
   
@@ -508,6 +511,8 @@ IFFByteStream::read(void *buffer, size_t size)
   // Ensure that read does not extend beyond chunk
   if (offset > ctx->offEnd)
     G_THROW( ERR_MSG("IFFByteStream.bad_offset") );
+  if (offset >= ctx->offEnd)
+    return 0;
   size_t rem = (size_t) (ctx->offEnd - offset);
   if (size > rem)
     size = rem;
