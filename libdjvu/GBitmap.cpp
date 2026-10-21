@@ -69,6 +69,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <emmintrin.h>
 
 // - Author: Leon Bottou, 05/1997
 
@@ -216,7 +217,7 @@ GBitmap::init(int arows, int acolumns, int aborder)
   ncolumns = acolumns;
   border = aborder;
   bytes_per_row = ncolumns + border;
-  int npixels = nrows * bytes_per_row + border;
+  size_t npixels = (size_t)nrows * bytes_per_row + border;
   gzerobuffer=zeroes(bytes_per_row + border);
   if (npixels > 0) 
     {
@@ -520,14 +521,29 @@ GBitmap::binarize_grays(int threshold)
 {
   GMonitorLock lock(monitor());
   if (bytes)
-    for (int row=0; row<nrows; row++)
-      {
-        unsigned char *p = (*this)[row];
-        for(unsigned char const * const pend=p+ncolumns;p<pend;++p)
+    {
+      const __m128i th_biased = _mm_set1_epi8((char)(threshold ^ 0x80));
+      const __m128i one_vec   = _mm_set1_epi8(1);
+      const __m128i bias      = _mm_set1_epi8((char)0x80);
+
+      unsigned char *p = bytes + border;
+      for (int row = 0; row < nrows; row++, p += bytes_per_row)
         {
-          *p = (*p>threshold) ? 1 : 0;
+          int c = 0;
+          for (; c <= (int)ncolumns - 16; c += 16)
+            {
+              __m128i val = _mm_loadu_si128((const __m128i*)(p + c));
+              __m128i val_biased = _mm_xor_si128(val, bias);
+              __m128i mask = _mm_cmpgt_epi8(val_biased, th_biased);
+              __m128i res = _mm_and_si128(mask, one_vec);
+              _mm_storeu_si128((__m128i*)(p + c), res);
+            }
+          for (; c < (int)ncolumns; c++)
+            {
+              p[c] = (p[c] > threshold) ? 1 : 0;
+            }
         }
-      }
+    }
   grays = 2;
 }
 
@@ -575,6 +591,12 @@ GBitmap::blit(const GBitmap *bm, int x, int y)
             {
               int sc = max(0, -x);
               int sc1 = min(bm->ncolumns, ncolumns-x);
+              for (; sc <= sc1 - 16; sc += 16)
+                {
+                  __m128i d_vec = _mm_loadu_si128((const __m128i*)(drow + sc));
+                  __m128i s_vec = _mm_loadu_si128((const __m128i*)(srow + sc));
+                  _mm_storeu_si128((__m128i*)(drow + sc), _mm_add_epi8(d_vec, s_vec));
+                }
               while (sc < sc1)
                 {
                   drow[sc] += srow[sc];
@@ -1497,11 +1519,12 @@ void
 GBitmap::fill(unsigned char value)
 {
   GMonitorLock lock(monitor());
-  for(unsigned int y=0; y<rows(); y++)
+  if (!bytes)
+    uncompress();
+  unsigned char *row = bytes + border;
+  for(unsigned int y = 0; y < (unsigned int)nrows; y++, row += bytes_per_row)
     {
-      unsigned char* bm_y = (*this)[y];
-      for(unsigned int x=0; x<columns(); x++)
-        bm_y[x] = value;
+      memset(row, value, ncolumns);
     }
 }
 
@@ -1606,13 +1629,26 @@ GBitmap::rotate(int count)
     {
     case 3: // rotate 90 counter clockwise
       {
-        const int lastrow = dbitmap.rows()-1;
-        for(int y=0; y<nrows; y++)
+        const int d_rows = dbitmap.rows();
+        GTArray<unsigned char*> d_row_ptrs(0, d_rows - 1);
+        for (int r = 0; r < d_rows; r++)
+          d_row_ptrs[r] = dbitmap[r];
+
+        const int BS = 32;
+        for (int y0 = 0; y0 < nrows; y0 += BS)
         {
-          const unsigned char *r=operator[] (y);
-          for(int x=0,xnew=lastrow;xnew>=0; x++,xnew--)
+          const int y_end = min(y0 + BS, (int)nrows);
+          for (int x0 = 0; x0 < ncolumns; x0 += BS)
           {
-            dbitmap[xnew][y] = r[x];
+            const int x_end = min(x0 + BS, (int)ncolumns);
+            for (int y = y0; y < y_end; y++)
+            {
+              const unsigned char *r = (*this)[y];
+              for (int x = x0; x < x_end; x++)
+              {
+                d_row_ptrs[d_rows - 1 - x][y] = r[x];
+              }
+            }
           }
         }
       }
@@ -1634,13 +1670,27 @@ GBitmap::rotate(int count)
       break;
     case 1: // rotate 270 counter clockwise
       {
-        const int lastcolumn = dbitmap.columns()-1;
-        for(int y=0,ynew=lastcolumn;ynew>=0;y++,ynew--)
+        const int d_rows = dbitmap.rows();
+        const int d_cols = dbitmap.columns();
+        GTArray<unsigned char*> d_row_ptrs(0, d_rows - 1);
+        for (int r = 0; r < d_rows; r++)
+          d_row_ptrs[r] = dbitmap[r];
+
+        const int BS = 32;
+        for (int y0 = 0; y0 < nrows; y0 += BS)
         {
-          const unsigned char *r=operator[] (y);
-          for(int x=0; x<ncolumns; x++)
+          const int y_end = min(y0 + BS, (int)nrows);
+          for (int x0 = 0; x0 < ncolumns; x0 += BS)
           {
-            dbitmap[x][ynew] = r[x];
+            const int x_end = min(x0 + BS, (int)ncolumns);
+            for (int y = y0; y < y_end; y++)
+            {
+              const unsigned char *r = (*this)[y];
+              for (int x = x0; x < x_end; x++)
+              {
+                d_row_ptrs[x][d_cols - 1 - y] = r[x];
+              }
+            }
           }
         }
       }
