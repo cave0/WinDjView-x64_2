@@ -551,9 +551,12 @@ MMRDecoder::init(GP<ByteStream> gbs, const bool striped)
 {
   rowsperstrip = (striped ? gbs->read16() : height);
   src = VLSource::create(gbs, striped);
-  mrtable = VLTable::create(mrcodes, 7);
-  btable = VLTable::create(bcodes, 13);
-  wtable = VLTable::create(wcodes, 13);
+  static GP<VLTable> static_mrtable = VLTable::create(mrcodes, 7);
+  static GP<VLTable> static_btable  = VLTable::create(bcodes, 13);
+  static GP<VLTable> static_wtable  = VLTable::create(wcodes, 13);
+  mrtable = static_mrtable;
+  btable  = static_btable;
+  wtable  = static_wtable;
 }
 
 GP<MMRDecoder> 
