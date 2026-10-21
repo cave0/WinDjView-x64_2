@@ -967,9 +967,10 @@ GPixmap::downsample(const GPixmap *src, int factor, const GRect *pdr)
       // set pixel color
       if (s >= (int)(sizeof(invmap)/sizeof(int)))
       {
-        dptr[x].r = r / s;
-        dptr[x].g = g / s;
-        dptr[x].b = b / s;
+        const int inv_s = 0x10000 / s;
+        dptr[x].r = (r * inv_s + 0x8000) >> 16;
+        dptr[x].g = (g * inv_s + 0x8000) >> 16;
+        dptr[x].b = (b * inv_s + 0x8000) >> 16;
       }
       else
       {
@@ -1562,11 +1563,15 @@ GPixmap::blend(const GBitmap *bm, int xpos, int ypos, const GPixmap *color)
       xcolumns = mini(xpos + (int) bm->columns(), ncolumns) - maxi(0, xpos);
   if(xrows <= 0 || xcolumns <= 0)
     return;
-  // Precompute multiplier map
+  // Precompute multiplier map covering the entire 0..255 range
   unsigned int multiplier[256];
   unsigned int maxgray = bm->get_grays() - 1;
-  for (unsigned int i=1; i<maxgray ; i++)
+  multiplier[0] = 0;
+  for (unsigned int i=1; i<maxgray; i++)
     multiplier[i] = 0x10000 * i / maxgray;
+  for (unsigned int i=maxgray; i<256; i++)
+    multiplier[i] = 0x10000;
+
   // Cache target color
   // Compute starting point
   const unsigned char *src = (*bm)[0] - mini(0,ypos)*bm->rowsize()-mini(0,xpos);
@@ -1579,22 +1584,12 @@ GPixmap::blend(const GBitmap *bm, int xpos, int ypos, const GPixmap *color)
       for (int x=0; x<xcolumns; x++)
         {
           unsigned char srcpix = src[x];
-          // Perform pixel operation
-          if (srcpix > 0)
+          if (srcpix)
             {
-              if (srcpix >= maxgray)
-                {
-                  dst[x].b = src2[x].b;
-                  dst[x].g = src2[x].g;
-                  dst[x].r = src2[x].r;
-                }
-              else
-                {
-                  unsigned int level = multiplier[srcpix];
-                  dst[x].b -= (((int)dst[x].b - (int)src2[x].b) * level) >> 16;
-                  dst[x].g -= (((int)dst[x].g - (int)src2[x].g) * level) >> 16;
-                  dst[x].r -= (((int)dst[x].r - (int)src2[x].r) * level) >> 16;
-                }
+              const unsigned int level = multiplier[srcpix];
+              dst[x].b += (((int)src2[x].b - (int)dst[x].b) * (int)level) >> 16;
+              dst[x].g += (((int)src2[x].g - (int)dst[x].g) * (int)level) >> 16;
+              dst[x].r += (((int)src2[x].r - (int)dst[x].r) * (int)level) >> 16;
             }
         }
       // Next line
@@ -1716,19 +1711,26 @@ GP<GPixmap> GPixmap::rotate(int count)
 
     GPixmap &dpixmap = *newpixmap;
 
-    GMonitorLock lock(&pixmap_monitor());
+    const int TILE = 32;
     switch(count)
     {
-    case 3: //// rotate 90 counter clockwise
+    case 3: //// rotate 90 counter clockwise with cache blocking
         {
             int lastrow = dpixmap.rows()-1;
-
-            for(int y=0; y<nrows; y++)
+            for(int y0=0; y0<nrows; y0+=TILE)
             {
-                const GPixel *r=operator [] (y);
-                for(int x=0,xnew=lastrow; xnew>=0; x++,xnew--)
+                int ymax = mini(y0+TILE, nrows);
+                for(int x0=0; x0<ncolumns; x0+=TILE)
                 {
-                    dpixmap[xnew][y] = r[x];
+                    int xmax = mini(x0+TILE, ncolumns);
+                    for(int y=y0; y<ymax; y++)
+                    {
+                        const GPixel *r = (*this)[y];
+                        for(int x=x0; x<xmax; x++)
+                        {
+                            dpixmap[lastrow - x][y] = r[x];
+                        }
+                    }
                 }
             }
         }
@@ -1749,16 +1751,24 @@ GP<GPixmap> GPixmap::rotate(int count)
             }
         }
         break;
-    case 1: //// rotate 270 counter clockwise
+    case 1: //// rotate 270 counter clockwise with cache blocking
         {
             int lastcolumn = dpixmap.columns()-1;
-
-            for(int y=0,ynew=lastcolumn; ynew>=0; y++,ynew--)
+            for(int y0=0; y0<nrows; y0+=TILE)
             {
-                const GPixel *r=operator [] (y);
-                for(int x=0; x<ncolumns; x++)
+                int ymax = mini(y0+TILE, nrows);
+                for(int x0=0; x0<ncolumns; x0+=TILE)
                 {
-                    dpixmap[x][ynew] = r[x];
+                    int xmax = mini(x0+TILE, ncolumns);
+                    for(int y=y0; y<ymax; y++)
+                    {
+                        int ynew = lastcolumn - y;
+                        const GPixel *r = (*this)[y];
+                        for(int x=x0; x<xmax; x++)
+                        {
+                            dpixmap[x][ynew] = r[x];
+                        }
+                    }
                 }
             }
         }
