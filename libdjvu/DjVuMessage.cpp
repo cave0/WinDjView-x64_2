@@ -259,6 +259,8 @@ appendPath(const GURL &url,
 GList<GURL>
 DjVuMessage::GetProfilePaths(void)
 {
+  static GCriticalSection lock;
+  GCriticalSectionLock lk(&lock);
   static bool first=true;
   static GList<GURL> realpaths;
   if(first)
