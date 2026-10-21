@@ -181,7 +181,7 @@ END_MESSAGE_MAP()
 CDjViewApp::CDjViewApp()
 	: m_bInitialized(false), m_bTopLevelDocs(false), m_pDjVuTemplate(NULL), m_pFindDlg(NULL),
 	  m_nThreadCount(0), m_hHook(NULL), m_pPendingSource(NULL), m_bShiftPressed(false),
-	  m_bControlPressed(false), m_nLangIndex(0), m_nTimerID(0),
+	  m_bControlPressed(false), m_nLangIndex(0),
 	  m_bOnlyRegisterTypes(false), m_nExitCode(0), m_hUpdateThread(NULL)
 {
 	DjVuSource::SetApplication(this);
@@ -651,27 +651,21 @@ BOOL CAboutDlg::OnInitDialog()
 
 BOOL CDjViewApp::WriteProfileDouble(LPCTSTR pszSection, LPCTSTR pszEntry, double fValue)
 {
-	CString strLocale = _tsetlocale(LC_NUMERIC, NULL);
-
-	_tsetlocale(LC_NUMERIC, _T("C"));
-	BOOL result = WriteProfileString(pszSection, pszEntry, FormatDouble(fValue));
-	_tsetlocale(LC_NUMERIC, strLocale);
-
-	return result;
+	static _locale_t s_cLocale = _create_locale(LC_NUMERIC, "C");
+	TCHAR szBuf[64];
+	_sntprintf_l(szBuf, _countof(szBuf), _T("%.6g"), s_cLocale, fValue);
+	return WriteProfileString(pszSection, pszEntry, szBuf);
 }
 
 double CDjViewApp::GetProfileDouble(LPCTSTR pszSection, LPCTSTR pszEntry, double fDefault)
 {
-	CString strLocale = _tsetlocale(LC_NUMERIC, NULL);
-	_tsetlocale(LC_NUMERIC, _T("C"));
-
 	CString strValue = GetProfileString(pszSection, pszEntry);
+	if (strValue.IsEmpty())
+		return fDefault;
 
+	static _locale_t s_cLocale = _create_locale(LC_NUMERIC, "C");
 	double fValue;
-	int result = _stscanf(strValue, _T("%lf"), &fValue);
-
-	_tsetlocale(LC_NUMERIC, strLocale);
-
+	int result = _stscanf_l(strValue, _T("%lf"), s_cLocale, &fValue);
 	return (result != 1 ? fDefault : fValue);
 }
 
@@ -715,7 +709,6 @@ void CDjViewApp::LoadSettings()
 	m_appSettings.bFindBookmarkTitle = !!GetProfileInt(s_pszGlobalSection, s_pszFindBookmarkTitle, m_appSettings.bFindBookmarkTitle);
 	m_appSettings.bDisablePositioning = !!GetProfileInt(s_pszGlobalSection, s_pszDisablePositioning, m_appSettings.bDisablePositioning);
 	m_appSettings.bCustomZoomLevels = !!GetProfileInt(s_pszGlobalSection, s_pszCustomZoomLevels, m_appSettings.bCustomZoomLevels);
-	m_appSettings.strCustomZoomList = GetProfileString(s_pszGlobalSection, s_pszCustomZoomList,  m_appSettings.strCustomZoomList);
 	m_appSettings.strCustomZoomList = GetProfileString(s_pszGlobalSection, s_pszCustomZoomList,  m_appSettings.strCustomZoomList);
 	m_appSettings.strCustomZoomList = GetCustomZoomListString(m_appSettings.strCustomZoomList);
 	m_appSettings.strDjVuEditor = GetProfileString(s_pszGlobalSection, s_pszDjVuEditor,  m_appSettings.strDjVuEditor);
@@ -832,7 +825,7 @@ bool CDjViewApp::LoadDocSettingsFromFiles(const CString& strKey, DocSettings* pS
 	CString strPathName, strFileName, strTemp;
 	GetModuleFileName(NULL, strTemp.GetBuffer(_MAX_PATH), _MAX_PATH);
 	strTemp.ReleaseBuffer(strTemp.ReverseFind('\\') + 1);
-	strPathName = _tcsdup(strTemp) + MakeCString(s_pszDocumentsSection) + _T("\\");
+	strPathName = strTemp + MakeCString(s_pszDocumentsSection) + _T("\\");
 	strFileName = strPathName + strKey;
 
 	if (!PathIsDirectory(strPathName))
@@ -846,11 +839,12 @@ bool CDjViewApp::LoadDocSettingsFromFiles(const CString& strKey, DocSettings* pS
 			return false;
 		}
 		int nLength = static_cast<int>(file.GetLength());
-		vector<char> data(nLength);
-		file.Read(&data[0], nLength);
+		string str;
+		str.resize(nLength);
+		if (nLength > 0)
+			file.Read(&str[0], nLength);
 		file.Close();
 
-		string str(data.begin(), data.end());
 		stringstream in(str);
 		XMLParser parser;
 		if (!parser.Parse(in))
@@ -881,18 +875,26 @@ bool CDjViewApp::LoadDocSettingsFromFiles(const CString& strKey, DocSettings* pS
 	{
 		do
 		{
-			CFile file;
+			if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+				continue;
+
 			strFileName = strPathName + fd.cFileName;
+			CFile file;
 			if (!file.Open(strFileName, CFile::modeRead | CFile::shareDenyWrite))
 			{
 				continue;
 			}
 			int nLength = static_cast<int>(file.GetLength());
-			vector<char> data(nLength);
-			file.Read(&data[0], nLength);
+			string str;
+			str.resize(nLength);
+			if (nLength > 0)
+				file.Read(&str[0], nLength);
 			file.Close();
 
-			string str(data.begin(), data.end());
+			// Fast check: bypass full XML parse if attribute is not present
+			if (str.find("last-known-location") == string::npos)
+				continue;
+
 			stringstream in(str);
 			XMLParser parser;
 
@@ -1328,21 +1330,6 @@ LRESULT CALLBACK CDjViewApp::KeyboardProc(int nCode, WPARAM wParam, LPARAM lPara
 	return ::CallNextHookEx(theApp.m_hHook, nCode, wParam, lParam);
 }
 
-void CALLBACK CDjViewApp::TimerProc(HWND hWnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime)
-{
-	bool bShiftPressed = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
-	bool bControlPressed = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
-	if (bShiftPressed != theApp.m_bShiftPressed)
-	{
-		theApp.m_bShiftPressed = bShiftPressed;
-		theApp.UpdateObservers(KeyStateChanged(VK_SHIFT, bShiftPressed));
-	}
-	if (bControlPressed != theApp.m_bControlPressed)
-	{
-		theApp.m_bControlPressed = bControlPressed;
-		theApp.UpdateObservers(KeyStateChanged(VK_CONTROL, bControlPressed));
-	}
-}
 
 bool RegDeleteKeyRec(HKEY hKeyRoot, LPCTSTR lpszSubKey)
 {
@@ -1720,11 +1707,12 @@ void CDjViewApp::OnFileOpenSession()
 		return;
 	}
 	int nLength = static_cast<int>(file.GetLength());
-	vector<char> data(nLength);
-	file.Read(&data[0], nLength);
+	string str;
+	str.resize(nLength);
+	if (nLength > 0)
+		file.Read(&str[0], nLength);
 	file.Close();
 
-	string str(data.begin(), data.end());
 	stringstream in(str);
 	XMLParser parser;
 	if (!parser.Parse(in))
@@ -1761,11 +1749,12 @@ void CDjViewApp::OpenSession(CString& lpszFileName)
 		return;
 	}
 	int nLength = static_cast<int>(file.GetLength());
-	vector<char> data(nLength);
-	file.Read(&data[0], nLength);
+	string str;
+	str.resize(nLength);
+	if (nLength > 0)
+		file.Read(&str[0], nLength);
 	file.Close();
 
-	string str(data.begin(), data.end());
 	stringstream in(str);
 	XMLParser parser;
 	if (!parser.Parse(in))
@@ -2931,14 +2920,12 @@ BOOL CDjViewApp::SaveAllModified()
 	// delete old
 	for (int nItem = 0; nItem < 100; nItem++)
 	{
-		// delete
-		if (0 == WriteProfileString(
-			s_pszLastOpenedDocumentsSection,
-			s_pszLastOpenedDocumentPrefix + FormatString(_T("%d"), nItem),
-			NULL)
-			)
+		CString strKey = s_pszLastOpenedDocumentPrefix + FormatString(_T("%d"), nItem);
+		if (GetProfileString(s_pszLastOpenedDocumentsSection, strKey, _T("")).IsEmpty())
+			break;
+
+		if (0 == WriteProfileString(s_pszLastOpenedDocumentsSection, strKey, NULL))
 		{
-			// error deleteting - files ended
 			break;
 		}
 	}
@@ -3320,8 +3307,7 @@ unsigned int __stdcall CDjViewApp::CheckUpdateThreadProc(void* pvData)
 CString CDjViewApp::GetCustomZoomListString(CString strDlgResult)
 {
 	CString strResult = _T("");
-	CString strLocale = _tsetlocale(LC_NUMERIC, NULL);
-	_tsetlocale(LC_NUMERIC, _T("C"));
+	static _locale_t s_cLocale = _create_locale(LC_NUMERIC, "C");
 	strDlgResult.Replace(';', ',');
 	m_appSettings.customZoomList.clear();
 	if (strDlgResult.GetLength() > 3)
@@ -3342,7 +3328,7 @@ CString CDjViewApp::GetCustomZoomListString(CString strDlgResult)
 			if (strValue.GetLength() == 0)
 				continue;
 			double fValue;
-			if (_stscanf(strValue, _T("%lf"), &fValue) == 1)
+			if (_stscanf_l(strValue, _T("%lf"), s_cLocale, &fValue) == 1)
 			{
 				fValue = max(10, min(800, fValue));
 				m_appSettings.customZoomList.push_back(fValue);
@@ -3351,30 +3337,23 @@ CString CDjViewApp::GetCustomZoomListString(CString strDlgResult)
 	}
 
 	m_appSettings.customZoomList.sort();
-	list<double>::iterator it;
-	for (it = m_appSettings.customZoomList.begin(); it != m_appSettings.customZoomList.end();)
-	{
-		list<double>::iterator itPrev = it;
-		if (++it != m_appSettings.customZoomList.end() && *itPrev == *it)
-		{
-			m_appSettings.customZoomList.erase(it);
-			it = itPrev;
-		}
-	}
+	m_appSettings.customZoomList.unique();
 	if (m_appSettings.customZoomList.size() < 2)
 		m_appSettings.customZoomList.clear();
 
 	if (m_appSettings.customZoomList.size() > 0)
 	{
+		list<double>::iterator it;
+		TCHAR szBuf[64];
 		for (it = m_appSettings.customZoomList.begin(); ;)
 		{
-			strResult += FormatDouble(*it);
+			_sntprintf_l(szBuf, _countof(szBuf), _T("%.6g"), s_cLocale, *it);
+			strResult += szBuf;
 			if (++it == m_appSettings.customZoomList.end())
 				break;
 			strResult += _T(", ");
 		}
 	}
-	_tsetlocale(LC_NUMERIC, strLocale);
 	return strResult;
 }
 
