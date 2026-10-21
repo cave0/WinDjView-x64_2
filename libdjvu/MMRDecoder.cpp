@@ -426,24 +426,31 @@ MMRDecoder::VLSource::nextstripe(void)
 void
 MMRDecoder::VLSource::preload(void)
 {
-  while (lowbits>=8) 
+  // Fast path: consume bytes already in cache without refill checks
+  while (lowbits >= 8 && bufpos < bufmax)
+  {
+    lowbits -= 8;
+    codeword |= (unsigned int)buffer[bufpos++] << lowbits;
+  }
+
+  // Slow path: refill buffer when empty
+  while (lowbits >= 8) 
+  {
+    if (bufpos >= bufmax) 
     {
-      if (bufpos >= bufmax) 
-	{
-          // Refill buffer
-	  bufpos = bufmax = 0;
-          int size = sizeof(buffer);
-          if (readmax>=0 && readmax<size) 
-            size = readmax;
-          if (size>0)
-            bufmax = inp.read((void*)buffer, size);
-          readmax -= bufmax;
-	  if (bufmax <= 0)
-            return;
-	}
-      lowbits -= 8;
-      codeword |= buffer[bufpos++] << lowbits;
+      bufpos = bufmax = 0;
+      int size = sizeof(buffer);
+      if (readmax >= 0 && readmax < size) 
+        size = readmax;
+      if (size > 0)
+        bufmax = inp.read((void*)buffer, size);
+      readmax -= bufmax;
+      if (bufmax <= 0)
+        return;
     }
+    lowbits -= 8;
+    codeword |= (unsigned int)buffer[bufpos++] << lowbits;
+  }
 }
 
 
@@ -619,49 +626,27 @@ MMRDecoder::scanruns(const unsigned short **endptr)
             *xr = rle; xr++; rle = 0;
             break;
           }
-          /* Vertical Modes */
+        /* Vertical Modes */
         case V0:
-        case VR3:
-        case VR2:
         case VR1:
-        case VL3:
-        case VL2:
-        case VL1:
+        case VR2:
+        case VR3:
         {
-          int inc=b1;
-          switch ( c )
-          {
-          case V0:
-            inc = b1;
-            b1 += *pr++;
-            break;
-          case VR3:
-            inc = b1+3;
-            b1 += *pr++;
-            break;
-          case VR2:
-            inc = b1+2;
-            b1 += *pr++;
-            break;
-          case VR1:
-            inc = b1+1;
-            b1 += *pr++;
-            break;
-          case VL3:
-            inc = b1-3;
-            b1 -= *--pr;
-            break;
-          case VL2:
-            inc = b1-2;
-            b1 -= *--pr;
-            break;
-          case VL1:
-            inc = b1-1;
-            b1 -= *--pr;
-            break;
-          }
-          *xr = inc+rle-a0;
-          xr++;
+          int inc = b1 + (c - V0);
+          b1 += *pr++;
+          *xr++ = inc + rle - a0;
+          a0 = inc;
+          rle = 0;
+          a0color = !a0color;
+          break;
+        }
+        case VL1:
+        case VL2:
+        case VL3:
+        {
+          int inc = b1 - (c - VL1 + 1);
+          b1 -= *--pr;
+          *xr++ = inc + rle - a0;
           a0 = inc;
           rle = 0;
           a0color = !a0color;
