@@ -124,11 +124,11 @@ public:
 class DjVuFileCache : public GPEnabled
 {
 protected:
-   DjVuFileCache(const int max_size=5*2*1024*1024);
+   DjVuFileCache(const int max_size=128*1024*1024);
 public:
       /** Constructs the #DjVuFileCache#
 	  @param max_size Maximum allowed size of the cache in bytes. */
-   static GP<DjVuFileCache> create(const int max_size=5*2*1024*1024);
+   static GP<DjVuFileCache> create(const int max_size=128*1024*1024);
 
    virtual ~DjVuFileCache(void);
 
@@ -171,16 +171,17 @@ public:
 	{
 	public:
 	   virtual ~Item(void);
-	   time_t		get_time(void) const;
+	   unsigned long long	get_time(void) const;
 
 	   GP<DjVuFile>	get_file(void) const;
 	   unsigned int	get_size(void) const;
 	   
 	   void		refresh(void);
+	   static unsigned long long next_tick(void);
 
 	public:
 	   GP<DjVuFile>	file;
-	   time_t		time;
+	   unsigned long long	time;
 	   GPosition		list_pos;
 	   static int	qsort_func(const void * el1, const void * el2);
 
@@ -217,11 +218,11 @@ private:
 //@}
    
 inline
-DjVuFileCache::Item::Item(void) : time(::time(0)) {};
+DjVuFileCache::Item::Item(void) : time(next_tick()) {};
 
 inline
 DjVuFileCache::Item::Item(const GP<DjVuFile> & xfile) :
-      file(xfile), time(::time(0)) {}
+      file(xfile), time(next_tick()) {}
 
 inline
 DjVuFileCache::Item::~Item(void) {}
@@ -238,7 +239,7 @@ DjVuFileCache::Item::get_size(void) const
    return file->get_memory_usage();
 }
 
-inline time_t
+inline unsigned long long
 DjVuFileCache::Item::get_time(void) const
 {
    return time;
@@ -247,7 +248,7 @@ DjVuFileCache::Item::get_time(void) const
 inline void
 DjVuFileCache::Item::refresh(void)
 {
-   time=::time(0);
+   time=next_tick();
 }
 
 inline
