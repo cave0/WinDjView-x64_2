@@ -1214,7 +1214,7 @@ DjVuDocument::process_threqs(void)
               GP<IW44Image> iwpix=IW44Image::create_encode(*pm);
               GP<ByteStream> gstr=ByteStream::create();
               IWEncoderParms parms;
-              parms.slices=10; // 10 slices is optimal for 160x160 previews on 2-core CPUs
+              parms.slices=15; // 15 slices is optimal for 160x160 previews on 2-core CPUs
               parms.bytes=0;
               parms.decibels=0;
               iwpix->encode_chunk(gstr, parms);
