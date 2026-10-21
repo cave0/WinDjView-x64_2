@@ -287,23 +287,21 @@ atomicAcquire(int volatile *lock)
 void 
 atomicAcquireOrSpin(int volatile *lock)
 {
-  int spin = 64;
+  // Test-and-Test-and-Set: test with local cache read before locking bus
+  int spin = 1000;
   while (spin >= 0)
     {
-      if (SYNC_ACQ(lock))
+      if (*lock == 0 && SYNC_ACQ(lock))
         return;
       CPU_PAUSE();
       spin -= 1;
     }
-  if (spin < 0)
-    {
-      MUTEX_ENTER;
-      nwaiters += 1;
-      while (! SYNC_ACQ(lock))
-        COND_WAIT;
-      nwaiters -= 1;
-      MUTEX_LEAVE;
-    }
+  MUTEX_ENTER;
+  nwaiters += 1;
+  while (! SYNC_ACQ(lock))
+    COND_WAIT;
+  nwaiters -= 1;
+  MUTEX_LEAVE;
 }
 
 void 
