@@ -240,7 +240,10 @@ ArrayRep::ins(int n, const void * what, unsigned int howmany)
       copy(ndata, lobound-minlo, hibound-minlo,
 	   data, lobound-minlo, hibound-minlo);
       destroy(data, lobound-minlo, hibound-minlo);
-      data=ndata;
+      // Swap data and ndata so gndata frees the old buffer upon exiting scope
+      void *tmp = data;
+      data = ndata;
+      ndata = tmp;
       maxhi = nmaxhi;
    }
 
