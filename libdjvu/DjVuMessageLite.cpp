@@ -151,6 +151,8 @@ DjVuMessageLite::AddByteStreamLater(const GP<ByteStream> &bs)
 const DjVuMessageLite &
 DjVuMessageLite::create_lite(void)
 {
+  static GCriticalSection lock;
+  GCriticalSectionLock lk(&lock);
   GP<DjVuMessageLite> &static_message=getDjVuMessageLite();
   if(!static_message)
   {
