@@ -37,7 +37,8 @@ CPP_PCH_CREATE = /Yc"stdafx.h"
 # Ivy Bridge (Core i5-3230M) has AVX but not AVX2
 ARCH_FLAGS = /arch:AVX
 !ELSE
-ARCH_FLAGS =
+# Core i5-3230M supports AVX even in 32-bit mode
+ARCH_FLAGS = /arch:AVX
 !ENDIF
 
 CPP_FLAGS = $(CPP_FLAGS) /nologo /c /MT /W3 /EHsc /O2 /GL /GR- /Oi /Ot /Gy /Gw $(ARCH_FLAGS) \
@@ -45,6 +46,7 @@ CPP_FLAGS = $(CPP_FLAGS) /nologo /c /MT /W3 /EHsc /O2 /GL /GR- /Oi /Ot /Gy /Gw $
 
 LINK_FLAGS = $(LINK_FLAGS) "libdjvu\$(LIBDJVU)" vcomp.lib msimg32.lib version.lib shlwapi.lib \
              /nologo /subsystem:windows /incremental:no /machine:$(MACHINE) /OPT:REF /OPT:ICF \
+             /LARGEADDRESSAWARE /NXCOMPAT /DYNAMICBASE \
              /nodefaultlib:"msvcrt.lib" /ltcg /out:$(OUT)
 
 RSC_FLAGS = /l 0x409 /fo"$(INTDIR)\WinDjView.res" $(RSC_FLAGS) /d "NDEBUG" /d "WIN32" $(RSC_WIN64)
