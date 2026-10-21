@@ -917,15 +917,24 @@ MMRDecoder::decode(GP<ByteStream> gbs)
             }
 	}
       }
-      // Insert blocks into JB2Image
-      for (int b=0; b<blocksperline; b++)
+      // Compress bitmap blocks in parallel across CPU cores
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+      for (int b = 0; b < blocksperline; b++)
+        {
+          if (blocks[b])
+            blocks[b]->compress();
+        }
+
+      // Insert blocks into JB2Image sequentially (preserves shape ordering)
+      for (int b = 0; b < blocksperline; b++)
 	{
 	  JB2Shape shape;
 	  shape.bits = blocks[b];
 	  if (shape.bits) 
 	    {
 	      shape.parent = -1;
-	      shape.bits->compress();
 	      JB2Blit blit;
 	      blit.left = b*blocksize;
 	      blit.bottom = line+1;
