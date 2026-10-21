@@ -168,6 +168,7 @@ JPEGImage::get_pixmap()
 
 	IPicture* pIPicture = NULL;
 	HRESULT hResult = ::OleLoadPicture(pStream, 0, FALSE, IID_IPicture, (void**)&pIPicture);
+	pStream->Release();
 	if (hResult != S_OK || pIPicture == NULL)
 	{
 		return NULL;
@@ -180,7 +181,7 @@ JPEGImage::get_pixmap()
 	// Get image size in pixels
 	SIZE sz = szHimetric;
 
-	HDC hdcScreen = ::CreateDC(_T("DISPLAY"), NULL, NULL, NULL);
+	HDC hdcScreen = ::GetDC(NULL);
 	int cxPerInch = ::GetDeviceCaps(hdcScreen, LOGPIXELSX);
 	int cyPerInch = ::GetDeviceCaps(hdcScreen, LOGPIXELSY);
 
@@ -189,7 +190,7 @@ JPEGImage::get_pixmap()
 	sz.cy = MulDiv(sz.cy, cyPerInch, HIMETRIC_INCH);
 	::DPtoLP(hdcScreen, (POINT*)&sz, 1);
 
-	::DeleteDC(hdcScreen);
+	::ReleaseDC(NULL, hdcScreen);
 
 	// Create GPixmap from IPicture
 	BITMAPINFOHEADER bmih;
@@ -337,39 +338,39 @@ JPEGDecoder::decode(ByteStream & bs,GPixmap &pix)
   buffer = (*cinfo.mem->alloc_sarray)
     ((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1);
 
-  GP<ByteStream> goutputBlock=ByteStream::create();
-  ByteStream &outputBlock=*goutputBlock;
-  outputBlock.format("P6\n%d %d\n%d\n",cinfo.output_width, 
-                                 cinfo.output_height,255);
+  pix.init(cinfo.output_height, cinfo.output_width);
 
   isGrey = ( cinfo.out_color_space == JCS_GRAYSCALE) ? 1 : 0; 
 
   while (cinfo.output_scanline < cinfo.output_height)
   {
+    int line = cinfo.output_scanline;
     (void) jpeg_read_scanlines(&cinfo, buffer, 1);
+    GPixel *row = pix[line];
 
     if ( isGrey == 1 )
     {
-      for (i=0; i<row_stride; i++)
+      for (i = 0; i < (int)cinfo.output_width; i++)
       {
-        outputBlock.write8((char)buffer[0][i]); 
-        outputBlock.write8((char)buffer[0][i]); 
-        outputBlock.write8((char)buffer[0][i]); 
+        unsigned char g = (unsigned char)buffer[0][i];
+        row[i].r = g;
+        row[i].g = g;
+        row[i].b = g;
       }
     }else
     {
-      for (i=0; i<row_stride; i++) 
-        outputBlock.write8((char)buffer[0][i]); 
+      for (i = 0; i < (int)cinfo.output_width; i++)
+      {
+        row[i].r = (unsigned char)buffer[0][i * 3 + 0];
+        row[i].g = (unsigned char)buffer[0][i * 3 + 1];
+        row[i].b = (unsigned char)buffer[0][i * 3 + 2];
+      }
     }
   }
 
   (void) jpeg_finish_decompress(&cinfo);   
 
   jpeg_destroy_decompress(&cinfo);
-  
-  outputBlock.seek(0,SEEK_SET);
-
-  pix.init(outputBlock);
 }         
 
 /*** From here onwards code is to make ByteStream as the data
