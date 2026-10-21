@@ -176,6 +176,7 @@ DjVuDocument::start_init(
       // Initialize
    cache=xcache;
    doc_type=UNKNOWN_TYPE;
+   int_prefix.empty();
    DataPool::close_all();
    DjVuPortcaster * pcaster=get_portcaster();
    if (!xport)
@@ -523,8 +524,9 @@ DjVuDocument::get_int_prefix(void) const
       // assigned some permanent name. After '?' there should be the real
       // file's URL. Please note, that output of this function is used only
       // as name for DjVuPortcaster. Not as a URL.
-   GUTF8String retval;
-   return retval.format("document_%p%d?", this, hash(init_url));
+   if (!int_prefix.length())
+      int_prefix.format("document_%p%d?", this, hash(init_url));
+   return int_prefix;
 }
 
 void
@@ -1147,9 +1149,9 @@ DjVuDocument::process_threqs(void)
             G_THROW( ERR_MSG("DjVuDocument.bad_thumb") );
           
           // Copy the data
-          char buffer[1024];
+          char buffer[16384];
           int length;
-          while((length=iff.read(buffer, 1024)))
+          while((length=iff.read(buffer, sizeof(buffer))))
             req->data_pool->add_data(buffer, length);
           req->data_pool->set_eof();
           
@@ -1212,7 +1214,7 @@ DjVuDocument::process_threqs(void)
               GP<IW44Image> iwpix=IW44Image::create_encode(*pm);
               GP<ByteStream> gstr=ByteStream::create();
               IWEncoderParms parms;
-              parms.slices=97;
+              parms.slices=10; // 10 slices is optimal for 160x160 previews on 2-core CPUs
               parms.bytes=0;
               parms.decibels=0;
               iwpix->encode_chunk(gstr, parms);
@@ -1410,7 +1412,7 @@ add_to_cache(const GP<DjVuFile> & f, GMap<GURL, void *> & map,
       map[url]=0;
       cache->add_file(f);
       
-      GPList<DjVuFile> list;
+      GPList<DjVuFile> list=f->get_included_files(false);
       for(GPosition pos=list;pos;++pos)
 	 add_to_cache(list[pos], map, cache);
    }
