@@ -310,8 +310,7 @@ private:
   int count;
   DWORD locker;
   CRITICAL_SECTION cs;
-  struct thr_waiting *head;
-  struct thr_waiting *tail;
+  CONDITION_VARIABLE cv;
 #elif THREADMODEL==POSIXTHREADS
   int ok;
   int count;
