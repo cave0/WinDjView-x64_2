@@ -207,11 +207,11 @@ GArrayBase::resize(int lo, int hi)
     nminlo = nmaxhi = lo;
   while (nminlo > lo) {
     int incr = nmaxhi - nminlo;
-    nminlo -= (incr < 8 ? 8 : (incr > 32768 ? 32768 : incr));
+    nminlo -= (incr < 8 ? 8 : (incr > 1048576 ? 1048576 : incr));
   }
   while (nmaxhi < hi) {
     int incr = nmaxhi - nminlo;
-    nmaxhi += (incr < 8 ? 8 : (incr > 32768 ? 32768 : incr));
+    nmaxhi += (incr < 8 ? 8 : (incr > 1048576 ? 1048576 : incr));
   }
   // allocate and move
   int beg = lo;
@@ -308,7 +308,7 @@ GArrayBase::ins(int n, const void *src, int howmany)
     {
       int nmaxhi = maxhi;
       while (nmaxhi < hibound+howmany)
-        nmaxhi += (nmaxhi < 8 ? 8 : (nmaxhi > 32768 ? 32768 : nmaxhi));
+        nmaxhi += (nmaxhi < 8 ? 8 : (nmaxhi > 1048576 ? 1048576 : nmaxhi));
       int bytesize = traits.size * (nmaxhi-minlo+1);
       void *ndata = ::operator new (bytesize);
 #if GCONTAINER_ZERO_FILL
