@@ -332,7 +332,7 @@ static const VLCode bcodes[] = {
 // ----------------------------------------
 // SOURCE OF BITS
 
-#define VLSBUFSIZE    64
+#define VLSBUFSIZE    4096
 
 class MMRDecoder::VLSource : public GPEnabled
 {
@@ -916,8 +916,8 @@ MMRDecoder::decode(GP<ByteStream> gbs)
                       unsigned char *bptr = (*blocks[b])[bandline] - firstx;
                       int x1 = MAX(x,firstx);
                       int x2 = MIN(xend,lastx);
-                      while (x1 < x2)
-                        bptr[x1++] = 1;
+                      if (x2 > x1)
+                        memset(bptr + x1, 1, x2 - x1);
                     }
                   if (xend < lastx)
                     break;
