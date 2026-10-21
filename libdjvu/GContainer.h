@@ -87,7 +87,7 @@ namespace DJVU {
 
 // Clears allocated memory prior to running constructors ?
 #ifndef GCONTAINER_ZERO_FILL
-#define GCONTAINER_ZERO_FILL 1
+#define GCONTAINER_ZERO_FILL 0
 #endif
 
 // Avoid member templates (needed by old compilers)
