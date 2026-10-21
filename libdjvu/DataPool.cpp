@@ -66,6 +66,7 @@
 #include "GOS.h"
 #include "GURL.h"
 #include "debug.h"
+#include "atomic.h"
 
 #ifndef macintosh
 # include <sys/types.h>
@@ -209,7 +210,15 @@ DataPool::OpenFiles::get(void)
    DEBUG_MSG("DataPool::OpenFiles::get()\n");
    DEBUG_MAKE_INDENT(3);
    if (!global_ptr)
-     global_ptr=new OpenFiles();
+   {
+      OpenFiles *new_ptr = new OpenFiles();
+#if defined(WIN32)
+      if (InterlockedCompareExchangePointer((void* volatile*)&global_ptr, new_ptr, 0) != 0)
+         delete new_ptr;
+#else
+      global_ptr = new_ptr;
+#endif
+   }
    return global_ptr;
 }
 
@@ -474,7 +483,15 @@ inline FCPools *
 FCPools::get(void)
 {
    if (!global_ptr)
-     global_ptr=new FCPools();
+   {
+      FCPools *new_ptr = new FCPools();
+#if defined(WIN32)
+      if (InterlockedCompareExchangePointer((void* volatile*)&global_ptr, new_ptr, 0) != 0)
+         delete new_ptr;
+#else
+      global_ptr = new_ptr;
+#endif
+   }
    return global_ptr;
 }
 
@@ -705,13 +722,12 @@ public:
 class DataPool::Counter
 {
 private:
-   int               counter;
-   GCriticalSection  lock;
+   int volatile      counter;
 public:
    Counter() : counter(0) {};
-   operator int(void) const;
-   void              inc(void);
-   void              dec(void);
+   operator int(void) const { return counter; }
+   void              inc(void) { atomicIncrement(&counter); }
+   void              dec(void) { atomicDecrement(&counter); }
 };
 
 #define DATAPOOL_INIT eof_flag(false),stop_flag(false), \
@@ -1695,7 +1711,7 @@ private:
    GP<DataPool>		data_pool_lock;
    long			position;
    
-   char			buffer[512];
+   char			buffer[4096];
    size_t		buffer_size;
    size_t		buffer_pos;
 
@@ -1806,27 +1822,7 @@ DataPool::get_stream(void)
 }
 
 
-inline
-DataPool::Counter::operator int(void) const
-{
-   GCriticalSectionLock lk((GCriticalSection *) &lock);
-   int cnt=counter;
-   return cnt;
-}
-
-inline void
-DataPool::Counter::inc(void)
-{
-   GCriticalSectionLock lk(&lock);
-   counter++;
-}
-
-inline void
-DataPool::Counter::dec(void)
-{
-   GCriticalSectionLock lk(&lock);
-   counter--;
-}
+// Lock-free atomic counter implementations are defined inline in class declaration
 
 
 #ifdef HAVE_NAMESPACES
