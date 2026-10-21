@@ -40,7 +40,7 @@ ARCH_FLAGS = /arch:AVX
 ARCH_FLAGS =
 !ENDIF
 
-CPP_FLAGS = $(CPP_FLAGS) /nologo /c /MT /W3 /EHsc /O2 /GL /GR- /Oi /Gy /Gw $(ARCH_FLAGS) \
+CPP_FLAGS = $(CPP_FLAGS) /nologo /c /MT /W3 /EHsc /O2 /GL /GR- /Oi /Ot /Gy /Gw $(ARCH_FLAGS) \
             /openmp /D "WIN32" $(WIN64) /D "NDEBUG" /D "_WINDOWS" /Fp$(PCH) /Fo"$(INTDIR)/"
 
 LINK_FLAGS = $(LINK_FLAGS) "libdjvu\$(LIBDJVU)" vcomp.lib msimg32.lib version.lib shlwapi.lib \
