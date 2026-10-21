@@ -63,7 +63,7 @@ OUT = libdjvu$(SUFFIX).lib
 !IFDEF DEBUG
 OPTS = /MTd /EHsc /Zi /GR-
 !ELSE
-OPTS = /MT /EHsc /GR- /O2 /GL /Oi /Gy /Gw /openmp
+OPTS = /MT /EHsc /GR- /O2 /GL /Oi /Ot /Gy /Gw /openmp
 !IFDEF X64
 # Ivy Bridge (Core i5-3230M) has AVX but not AVX2
 OPTS = $(OPTS) /arch:AVX
