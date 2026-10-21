@@ -121,6 +121,8 @@ static AlignedLock locks[LOCKMASK+1];
 GPBase&
 GPBase::assign (const GPBase &sptr)
 {
+  if (this == &sptr)
+    return *this;
   int volatile *lockb = &locks[LOCKIDX(&sptr)].lock;
   atomicAcquireOrSpin(lockb);
   GPEnabled *nptr = sptr.ptr;
