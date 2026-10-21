@@ -318,12 +318,22 @@ JB2Image::get_bitmap(const GRect &rect, int subsample, int align, int dispy) con
   GP<GBitmap> bm = GBitmap::create(sheight, swidth, border);
   bm->set_grays(1+subsample*subsample);
   const int nblits = get_blit_count();
+  const int rxmax = rxmin + (swidth * subsample);
+  const int rymax = rymin + (sheight * subsample);
   for (int blitno = 0; blitno < nblits; ++blitno)
     {
       const JB2Blit *pblit = get_blit(blitno);
-      const JB2Shape  &pshape = get_shape(pblit->shapeno);
+      const JB2Shape &pshape = get_shape(pblit->shapeno);
       if (pshape.bits)
-        bm->blit(pshape.bits, pblit->left-rxmin, pblit->bottom-rymin+dispy, subsample);
+        {
+          const int bw = pshape.bits->columns();
+          const int bh = pshape.bits->rows();
+          // Fast-reject shapes completely outside the visible viewport
+          if (pblit->left + bw < rxmin || pblit->left >= rxmax ||
+              pblit->bottom + bh < rymin - dispy || pblit->bottom >= rymax - dispy)
+            continue;
+          bm->blit(pshape.bits, pblit->left-rxmin, pblit->bottom-rymin+dispy, subsample);
+        }
     }
   return bm;
 }
