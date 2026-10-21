@@ -143,7 +143,7 @@ djvu_set_memory_callbacks
     _djvu_realloc_handler=(djvu_realloc_callback *)realloc_handler;
     if(calloc_handler)
     {
-      _djvu_calloc_handler=(djvu_calloc_callback *)&calloc_handler;
+      _djvu_calloc_handler=calloc_handler;
     }else
     {
       _djvu_calloc_handler=0;
