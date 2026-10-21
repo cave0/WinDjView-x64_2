@@ -182,8 +182,12 @@ sse_bv_1(short* &q, short* e, int s, int s3)
       __m128i a_hi = _mm_cvtepi16_epi32(_mm_srli_si128(a, 8));
       __m128i b_hi = _mm_cvtepi16_epi32(_mm_srli_si128(b, 8));
 
-      __m128i res_lo = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_lo, w9), b_lo), d16), 5);
-      __m128i res_hi = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_hi, w9), b_hi), d16), 5);
+      // Fast shift-and-add: (a << 3) + a = 9*a (2 cycles vs 10 cycles for pmulld)
+      __m128i a9_lo = _mm_add_epi32(_mm_slli_epi32(a_lo, 3), a_lo);
+      __m128i a9_hi = _mm_add_epi32(_mm_slli_epi32(a_hi, 3), a_hi);
+
+      __m128i res_lo = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(a9_lo, b_lo), d16), 5);
+      __m128i res_hi = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(a9_hi, b_hi), d16), 5);
 
       __m128i delta = _mm_packs_epi32(res_lo, res_hi);
 
@@ -221,8 +225,12 @@ sse_bv_2(short* &q, short* e, int s, int s3)
       __m128i a_hi = _mm_cvtepi16_epi32(_mm_srli_si128(a, 8));
       __m128i b_hi = _mm_cvtepi16_epi32(_mm_srli_si128(b, 8));
 
-      __m128i res_lo = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_lo, w9), b_lo), d8), 4);
-      __m128i res_hi = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(_mm_mullo_epi32(a_hi, w9), b_hi), d8), 4);
+      // Fast shift-and-add: (a << 3) + a = 9*a (2 cycles vs 10 cycles for pmulld)
+      __m128i a9_lo = _mm_add_epi32(_mm_slli_epi32(a_lo, 3), a_lo);
+      __m128i a9_hi = _mm_add_epi32(_mm_slli_epi32(a_hi, 3), a_hi);
+
+      __m128i res_lo = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(a9_lo, b_lo), d8), 4);
+      __m128i res_hi = _mm_srai_epi32(_mm_add_epi32(_mm_sub_epi32(a9_hi, b_hi), d8), 4);
 
       __m128i delta = _mm_packs_epi32(res_lo, res_hi);
 
@@ -816,18 +824,33 @@ IW44Image::Map::image(signed char *img8, int rowsize, int pixsep, int fast)
     }
   // Copy result into image
   p = data16;
-  signed char *row = img8;  
+  signed char *row = img8;
+  const __m128i v_round = _mm_set1_epi16(iw_round);
   for (i=0; i<ih; i++)
     {
       signed char *pix = row;
-      for (int j=0; j<iw; j+=1,pix+=pixsep)
+      int j = 0;
+      if (pixsep == 1)
+        {
+          // Vectorized path: 16 pixels per iteration with hardware saturation
+          for (; j + 15 < iw; j += 16)
+            {
+              __m128i c0 = _mm_loadu_si128((const __m128i*)&p[j]);
+              __m128i c1 = _mm_loadu_si128((const __m128i*)&p[j + 8]);
+              c0 = _mm_srai_epi16(_mm_add_epi16(c0, v_round), iw_shift);
+              c1 = _mm_srai_epi16(_mm_add_epi16(c1, v_round), iw_shift);
+              __m128i packed = _mm_packs_epi16(c0, c1);
+              _mm_storeu_si128((__m128i*)&pix[j], packed);
+            }
+        }
+      for (; j < iw; j += 1)
         {
           int x = (p[j] + iw_round) >> iw_shift;
           if (x < -128)
             x = -128;
           else if (x > 127)
             x = 127;
-          *pix = x;
+          pix[j * pixsep] = (signed char)x;
         }
       row += rowsize;
       p += bw;
