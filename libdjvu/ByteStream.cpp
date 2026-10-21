@@ -359,7 +359,7 @@ ByteStream::seek(long offset, int whence, bool nothrow)
           return -1;
         G_THROW( ERR_MSG("ByteStream.backward") );
       }
-      char buffer[1024];
+      char buffer[16384];
       int bytes;
       while((bytes=read(buffer, sizeof(buffer))))
         EMPTY_LOOP;
@@ -378,7 +378,7 @@ ByteStream::seek(long offset, int whence, bool nothrow)
   }
   while (nwhere>ncurrent)
   {
-    char buffer[1024];
+    char buffer[16384];
     const int xbytes=(ncurrent+(int)sizeof(buffer)>nwhere)
       ?(nwhere - ncurrent):(int)sizeof(buffer);
     const int bytes = read(buffer, xbytes);
