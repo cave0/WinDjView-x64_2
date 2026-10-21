@@ -122,6 +122,9 @@ GP<JPEGImage>
 JPEGImage::create(ByteStream& bs)
 {
 	vector<char> buffer;
+	int expected = bs.size();
+	if (expected > 0)
+		buffer.reserve(expected);
 	char temp[65536];
 	int read;
 	while ((read = bs.readall(temp, sizeof(temp))) > 0)
@@ -228,9 +231,7 @@ JPEGImage::get_pixmap()
 	// Copy DIB into Pixmap
 	GP<GPixmap> pm = GPixmap::create(sz.cy, sz.cx);
 
-	int nRowLength = sz.cx*3;
-	while (nRowLength % 4 != 0)
-		++nRowLength;
+	int nRowLength = (sz.cx * 3 + 3) & ~3;
 
 #ifdef _OPENMP
 #pragma omp parallel for schedule(static)
