@@ -357,7 +357,7 @@ ByteStream::size(void) const
   ByteStream *bs=const_cast<ByteStream *>(this);
   int bsize=(-1);
   long pos=tell();
-  if(bs->seek(0,SEEK_END,true))
+  if(bs->seek(0,SEEK_END,true) >= 0)
   {
     bsize=(int)tell();
     (void)(bs->seek(pos,SEEK_SET,false));
