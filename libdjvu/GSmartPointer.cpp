@@ -111,19 +111,23 @@ GPEnabled::destroy()
 
 #define LOCKMASK 0x3f
 #define LOCKIDX(addr) ((((size_t)(addr))/sizeof(void*))&LOCKMASK)
-static int volatile locks[LOCKMASK+1];
+struct AlignedLock {
+  int volatile lock;
+  char pad[64 - sizeof(int volatile)]; // Pad to 64-byte cache line to prevent false sharing
+};
+static AlignedLock locks[LOCKMASK+1];
 
 
 GPBase&
 GPBase::assign (const GPBase &sptr)
 {
-  int volatile *lockb = locks+LOCKIDX(&sptr);
+  int volatile *lockb = &locks[LOCKIDX(&sptr)].lock;
   atomicAcquireOrSpin(lockb);
   GPEnabled *nptr = sptr.ptr;
   if (nptr)
     nptr->ref();
   atomicRelease(lockb);
-  int volatile *locka = locks+LOCKIDX(this);
+  int volatile *locka = &locks[LOCKIDX(this)].lock;
   atomicAcquireOrSpin(locka);
   GPEnabled *old = ptr;
   ptr = nptr;
@@ -138,7 +142,7 @@ GPBase::assign (GPEnabled *nptr)
 {
   if (nptr)
     nptr->ref();
-  int volatile *locka = locks+LOCKIDX(this);
+  int volatile *locka = &locks[LOCKIDX(this)].lock;
   atomicAcquireOrSpin(locka);
   GPEnabled *old = ptr;
   ptr = nptr;
