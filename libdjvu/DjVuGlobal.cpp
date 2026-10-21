@@ -210,7 +210,7 @@ DjVuProgressTask::signal(unsigned long curdate, unsigned long estdate)
   if (inprogress > 0)
     {
       const unsigned long enddate = startdate+
-        (unsigned long)(((float)(estdate-startdate) * (float)nsteps) / (float)inprogress);
+        (unsigned long)(((unsigned long long)(estdate-startdate) * (unsigned long long)nsteps) / (unsigned long long)inprogress);
       if (parent)
       {
         parent->signal(curdate, enddate);
