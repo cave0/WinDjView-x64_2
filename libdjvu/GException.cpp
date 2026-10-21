@@ -133,6 +133,8 @@ GException::~GException(void)
 GException & 
 GException::operator=(const GException & exc)
 {
+  if (this == &exc)
+    return *this;
   if (cause && cause!=outofmemory) 
     delete [] const_cast<char*>(cause);
   cause = 0;
@@ -190,7 +192,7 @@ GException::cmp_cause(const char s1[] , const char s2[])
   {
     const char *end_s1=strpbrk(s1,"\t\n");
     const int n1=end_s1?(int)((size_t)end_s1-(size_t)s1):strlen(s1);
-    const char *end_s2=strpbrk(s1,"\t\n");
+    const char *end_s2=strpbrk(s2,"\t\n");
     const int n2=end_s2?(int)((size_t)end_s2-(size_t)s2):strlen(s2);
     retval=(n1==n2)?strncmp(s1,s2,n1):strcmp(s1,s2);
   }
