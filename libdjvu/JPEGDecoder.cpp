@@ -122,9 +122,6 @@ GP<JPEGImage>
 JPEGImage::create(ByteStream& bs)
 {
 	vector<char> buffer;
-	int expected = bs.size();
-	if (expected > 0)
-		buffer.reserve(expected);
 	char temp[65536];
 	int read;
 	while ((read = bs.readall(temp, sizeof(temp))) > 0)
