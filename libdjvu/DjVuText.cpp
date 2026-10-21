@@ -493,24 +493,20 @@ DjVuTXT::Zone::get_smallest(GList<GRect> &list, const int padding) const
 void
 DjVuTXT::get_zones(int zone_type, const Zone *parent, 
                    GList<Zone *> & zone_list) const 
-   // get all the zones of  type zone_type under zone node parent
+   // get all the zones of type zone_type under zone node parent
 {
    // search all branches under parent
-   const Zone *zone=parent;
-   for( int cur_ztype=zone->ztype; cur_ztype<zone_type; ++cur_ztype )
+   const Zone *zone = parent;
+   for (GPosition pos = zone->children; pos; ++pos)
    {
-      GPosition pos;
-      for(pos=zone->children; pos; ++pos)
+      Zone *zcur = (Zone *)&zone->children[pos];
+      if (zcur->ztype == zone_type)
       {
-	 Zone *zcur=(Zone *)&zone->children[pos];
-	 if ( zcur->ztype == zone_type )
-	 {
-	    GPosition zpos=zone_list;
-	    if ( !zone_list.search(zcur,zpos) )
-	       zone_list.append(zcur);
-	 }
-	 else if ( zone->children[pos].ztype < zone_type )
-	    get_zones(zone_type, &zone->children[pos], zone_list);
+         zone_list.append(zcur);
+      }
+      else if (zcur->ztype < zone_type)
+      {
+         get_zones(zone_type, zcur, zone_list);
       }
    }
 }
@@ -578,7 +574,7 @@ DjVuTXT::find_text_in_rect(GRect target_rect, GUTF8String &text) const
       {
 	 GRect rect=zone_list[pos]->rect;
 	 int area=rect.area();
-	 if (rect.intersect(rect, target_rect))
+	 if (area > 0 && rect.intersect(rect, target_rect))
 	 {
 	    float ftmp=rect.area()/(float)area;
 	    if ( !ar || ar<ftmp )
@@ -899,7 +895,6 @@ writeText( ByteStream & str_out,
 {
 //  DEBUG_MSG( "--zonetype=" << zone.ztype << "\n" );
 
-  const GUTF8String xindent(indent( 2 * zone.ztype + 2 ));
   GPosition pos=zone.children;
   // Build attribute string
   if( ! pos )
