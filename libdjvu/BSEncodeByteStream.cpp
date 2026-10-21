@@ -561,8 +561,8 @@ _BSort::radixsort8(void)
   int i;
   // Initialize frequency array
   int lo[256], hi[256];
-  for (i=0; i<256; i++)
-    hi[i] = lo[i] = 0;
+  memset(lo, 0, sizeof(lo));
+  memset(hi, 0, sizeof(hi));
   // Count occurences
   for (i=0; i<size-1; i++)
     hi[data[i]] ++;
@@ -596,8 +596,7 @@ _BSort::radixsort16(void)
   // Initialize frequency array
   int *ftab;
   GPBuffer<int> gftab(ftab,65536);
-  for (i=0; i<65536; i++)
-    ftab[i] = 0;
+  memset(ftab, 0, 65536 * sizeof(int));
   // Count occurences
   unsigned char c1 = data[0];
   for (i=0; i<size-1; i++)
@@ -720,14 +719,14 @@ _BSort::run(int &markerpos)
   // Step 4: Permute data
   int i;
   markerpos = -1;
-  for (i=0; i<size; i++)
-    rank[i] = data[i];
+  unsigned char *orig = (unsigned char *)rank;
+  memcpy(orig, data, size);
   for (i=0; i<size; i++)
     {
       int j = posn[i] & 0xffffff;
       if (j>0) 
         { 
-          data[i] = rank[j-1];
+          data[i] = orig[j-1];
         } 
       else 
         {
