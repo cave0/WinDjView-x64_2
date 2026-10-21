@@ -254,10 +254,9 @@ GMapArea::is_point_inside(int x, int y) const
 
 static GUTF8String make_c_string(GUTF8String string)
 {
-  GUTF8String buffer;
+  GUTF8String buffer("\"");
   const char *data = (const char*)string;
   int length = string.length();
-  buffer = GUTF8String("\"");
   while (*data && length>0) 
     {
       int span = 0;
@@ -266,7 +265,7 @@ static GUTF8String make_c_string(GUTF8String string)
         span++;
       if (span > 0) 
         {  
-          buffer = buffer + GUTF8String(data, span);
+          buffer += GUTF8String(data, span);
           data += span;
           length -= span;
         }  
@@ -275,18 +274,18 @@ static GUTF8String make_c_string(GUTF8String string)
           char buf[8];
           static const char *tr1 = "\"\\tnrbf";
           static const char *tr2 = "\"\\\t\n\r\b\f";
-          sprintf(buf,"\\%03o", (int)(((unsigned char*)data)[span]));
+          sprintf(buf,"\\%03o", (int)(((unsigned char*)data)[0]));
           for (int i=0; tr2[i]; i++)
-            if (data[span] == tr2[i])
+            if (data[0] == tr2[i])
               buf[1] = tr1[i];
           if (buf[1]<'0' || buf[1]>'3')
             buf[2] = 0;
-          buffer = buffer + GUTF8String(buf);
+          buffer += buf;
           data += 1;
           length -= 1;
         }
     }
-  buffer = buffer + GUTF8String("\"");
+  buffer += "\"";
   return buffer;
 }
 
