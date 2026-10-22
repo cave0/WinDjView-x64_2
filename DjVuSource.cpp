@@ -1759,22 +1759,17 @@ PageInfo DjVuSource::ReadPageInfo(int nPage, bool bNeedText, bool bNeedAnno)
 
 				if (bNeedText)
 				{
-					const GP<IFFByteStream> iffout = IFFByteStream::create(pTextStream);
-					iffout->put_chunk(chkid);
-					iffout->copy(*chunk_stream);
-					iffout->close_chunk();
+					GP<DjVuText> pDjVuText = DjVuText::create();
+					chunk_stream->seek(0);
+					pDjVuText->decode(chunk_stream);
+					pageInfo.pText = pDjVuText->txt;
+					pageInfo.bTextDecoded = true;
 				}
 			}
-			else if (bNeedAnno && chkid == "FORM:ANNO")
+			else if (bNeedAnno && (chkid == "ANTa" || chkid == "ANTz" || chkid == "FORM:ANNO"))
 			{
-				pAnnoStream->copy(*chunk_stream);
-			}
-			else if (bNeedAnno && (chkid == "ANTa" || chkid == "ANTz"))
-			{
-				const GP<IFFByteStream> iffout = IFFByteStream::create(pAnnoStream);
-				iffout->put_chunk(chkid);
-				iffout->copy(*chunk_stream);
-				iffout->close_chunk();
+				if (pAnnoStream != NULL)
+					pAnnoStream->copy(*chunk_stream);
 			}
 			else if (bNeedAnno && chkid == "INCL")
 			{
@@ -1785,10 +1780,8 @@ PageInfo DjVuSource::ReadPageInfo(int nPage, bool bNeedText, bool bNeedAnno)
 			iff->seek_close_chunk();
 		}
 
-		if (bNeedText && pTextStream->tell())
-			pageInfo.DecodeText(pTextStream);
-
-		if (bNeedAnno && pAnnoStream->tell())
+		// Text is decoded directly in-place from the chunk stream without intermediate copying
+		if (bNeedAnno && pAnnoStream != NULL && pAnnoStream->tell())
 			pageInfo.DecodeAnno(pAnnoStream);
 
 		UpdatePageTitle(pageInfo, nPage);
