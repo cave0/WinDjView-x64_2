@@ -107,24 +107,49 @@ CDIB* RenderPixmap(GPixmap& pm, const CRect& rcClip, const CDisplaySettings& dis
 	double fGamma = displaySettings.GetGamma();
 	if (fGamma != 1.0 || nBrightness != 0 || nContrast != 0 || displaySettings.bInvertColors)
 	{
-		BYTE table[256];
-		for (int i = 0; i < 256; ++i)
-			table[i] = static_cast<BYTE>(i);
-
-		if (displaySettings.bInvertColors)
-			BuildInvertTable(table);
-		if (nBrightness != 0)
-			BuildBrightnessTable(nBrightness, table);
-		if (nContrast != 0)
-			BuildContrastTable(nContrast, table);
-		if (fGamma != 1.0)
-			BuildGammaTable(fGamma, table);
-
-		for (int y = rcClip.top; y < rcClip.bottom; ++y, pBits += nRowLength)
+		// Fast-path: 64-bit word inversion when no gamma/brightness/contrast adjustments are active
+		if (displaySettings.bInvertColors && fGamma == 1.0 && nBrightness == 0 && nContrast == 0)
 		{
-			const BYTE* pSrc = reinterpret_cast<const BYTE*>(pm[y] + rcClip.left);
-			for (int x = 0; x < nRowBytes; ++x)
-				pBits[x] = table[pSrc[x]];
+			for (int y = rcClip.top; y < rcClip.bottom; ++y, pBits += nRowLength)
+			{
+				const BYTE* pSrc = reinterpret_cast<const BYTE*>(pm[y] + rcClip.left);
+				int x = 0;
+				while (x + 8 <= nRowBytes)
+				{
+					uint64_t chunk;
+					memcpy(&chunk, pSrc + x, sizeof(uint64_t));
+					chunk = ~chunk;
+					memcpy(pBits + x, &chunk, sizeof(uint64_t));
+					x += 8;
+				}
+				while (x < nRowBytes)
+				{
+					pBits[x] = static_cast<BYTE>(~pSrc[x]);
+					++x;
+				}
+			}
+		}
+		else
+		{
+			BYTE table[256];
+			for (int i = 0; i < 256; ++i)
+				table[i] = static_cast<BYTE>(i);
+
+			if (displaySettings.bInvertColors)
+				BuildInvertTable(table);
+			if (nBrightness != 0)
+				BuildBrightnessTable(nBrightness, table);
+			if (nContrast != 0)
+				BuildContrastTable(nContrast, table);
+			if (fGamma != 1.0)
+				BuildGammaTable(fGamma, table);
+
+			for (int y = rcClip.top; y < rcClip.bottom; ++y, pBits += nRowLength)
+			{
+				const BYTE* pSrc = reinterpret_cast<const BYTE*>(pm[y] + rcClip.left);
+				for (int x = 0; x < nRowBytes; ++x)
+					pBits[x] = table[pSrc[x]];
+			}
 		}
 	}
 	else
@@ -905,47 +930,50 @@ void HighlightRect(CDC* pDC, const CRect& rect, COLORREF color, double fTranspar
 	if (!rcClip.IntersectRect(CRect(rcClip), rect))
 		return;
 
-	COffscreenDC offscreenDC;
-
-	offscreenDC.Create(pDC, rcClip.Size(), 24);
-	CDIB* pDIB = offscreenDC.GetDIB();
-	if (pDIB == NULL || pDIB->m_hObject == NULL)
-	{
-		offscreenDC.Release();
+	int nAlpha = max(0, min(255, static_cast<int>(fTransparency * 255.0 + 0.5)));
+	BYTE nSrcAlpha = static_cast<BYTE>(255 - nAlpha);
+	if (nSrcAlpha == 0)
 		return;
-	}
 
-	ASSERT(pDIB->GetBitsPerPixel() == 24);
+	// Persistent 1x1 32-bit DIB holding the solid highlight color
+	static HDC s_hMemDC = NULL;
+	static HBITMAP s_hBmp = NULL;
+	static COLORREF s_crLast = CLR_INVALID;
+	static DWORD* s_pPixel = NULL;
 
-	offscreenDC.BitBlt(0, 0, rcClip.Width(), rcClip.Height(), pDC, rcClip.left, rcClip.top, SRCCOPY);
-
-	int nRowLength = CalculateDIBPitch(pDIB->GetWidth(), 24);
-	LPBYTE pBits = pDIB->GetBits();
-
-	BYTE tableRed[256], tableGreen[256], tableBlue[256];
-	for (int i = 0; i < 256; ++i)
-		tableRed[i] = tableGreen[i] = tableBlue[i] = static_cast<BYTE>(i);
-
-	BuildTransparencyTable(fTransparency, GetRValue(color), tableRed);
-	BuildTransparencyTable(fTransparency, GetGValue(color), tableGreen);
-	BuildTransparencyTable(fTransparency, GetBValue(color), tableBlue);
-
-	for (int y = 0; y < rcClip.Height(); ++y, pBits += nRowLength)
+	if (s_hMemDC == NULL)
 	{
-		LPBYTE pPixel = pBits;
-		for (int x = 0; x < rcClip.Width(); ++x)
-		{
-			*pPixel = tableBlue[*pPixel];
-			++pPixel;
-			*pPixel = tableGreen[*pPixel];
-			++pPixel;
-			*pPixel = tableRed[*pPixel];
-			++pPixel;
-		}
+		s_hMemDC = ::CreateCompatibleDC(NULL);
+		BITMAPINFO bi;
+		ZeroMemory(&bi, sizeof(bi));
+		bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+		bi.bmiHeader.biWidth = 1;
+		bi.bmiHeader.biHeight = 1;
+		bi.bmiHeader.biPlanes = 1;
+		bi.bmiHeader.biBitCount = 32;
+		bi.bmiHeader.biCompression = BI_RGB;
+		s_hBmp = ::CreateDIBSection(s_hMemDC, &bi, DIB_RGB_COLORS, (void**)&s_pPixel, NULL, 0);
+		::SelectObject(s_hMemDC, s_hBmp);
 	}
 
-	pDC->BitBlt(rcClip.left, rcClip.top, rcClip.Width(), rcClip.Height(), &offscreenDC, 0, 0, SRCCOPY);
-	offscreenDC.Release();
+	if (s_pPixel != NULL && s_crLast != color)
+	{
+		BYTE* p = reinterpret_cast<BYTE*>(s_pPixel);
+		p[0] = GetBValue(color);
+		p[1] = GetGValue(color);
+		p[2] = GetRValue(color);
+		p[3] = 0;
+		s_crLast = color;
+	}
+
+	BLENDFUNCTION bf;
+	bf.BlendOp = AC_SRC_OVER;
+	bf.BlendFlags = 0;
+	bf.SourceConstantAlpha = nSrcAlpha;
+	bf.AlphaFormat = 0;
+
+	::GdiAlphaBlend(pDC->m_hDC, rcClip.left, rcClip.top, rcClip.Width(), rcClip.Height(),
+					s_hMemDC, 0, 0, 1, 1, bf);
 }
 
 void HighlightPolygon(CDC* pDC, const POINT* points, int nCount, COLORREF color, double fTransparency)

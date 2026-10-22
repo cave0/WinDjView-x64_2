@@ -7962,14 +7962,17 @@ int CDjVuView::OnMouseActivate(CWnd* pDesktopWnd, UINT nHitTest, UINT message)
 	return CMyScrollView::OnMouseActivate(pDesktopWnd, nHitTest, message);
 }
 
-CString CDjVuView::GetPageTitle (int nPage) const 
+CString CDjVuView::GetPageTitle(int nPage) const 
 { 
-	PageInfo pi = m_pages[nPage].info;
-	if (!pi.bDecoded)
+	if (nPage < 0 || nPage >= m_nPageCount)
+		return _T("");
+
+	PageInfo& pi = const_cast<PageInfo&>(m_pages[nPage].info);
+	if (!pi.bDecoded && pi.strPageTitle.IsEmpty())
 	{
 		m_pSource->UpdatePageTitle(pi, nPage);
 	}
-	return pi.strPageTitle == "" ? _T("#") + FormatString(_T("%d"), nPage + 1) : pi.strPageTitle;
+	return pi.strPageTitle.IsEmpty() ? _T("#") + FormatString(_T("%d"), nPage + 1) : pi.strPageTitle;
 }
 
 CString CDjVuView::GetMousePosFromPage()
