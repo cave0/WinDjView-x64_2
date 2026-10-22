@@ -2035,56 +2035,90 @@ IW44Image::Transform::Decode::backward(short *p, int w, int h, int rowsize, int 
 // COLOR TRANSFORM 
 //////////////////////////////////////////////////////
 
-/* Converts YCbCr to RGB using SSE4.1. */
+static inline unsigned char clamp255(int x)
+{
+  return (x < 0) ? 0 : ((x > 255) ? 255 : static_cast<unsigned char>(x));
+}
+
+/* Converts YCbCr to RGB with superscalar pipelining and zero aliasing. */
 void 
 IW44Image::Transform::Decode::YCbCr_to_RGB(GPixel *p, int w, int h, int rowsize)
 {
-  const __m128i v128 = _mm_set1_epi16(128);
-  const __m128i vZero = _mm_setzero_si128();
-
-  for (int i=0; i<h; i++, p+=rowsize)
+  for (int i = 0; i < h; i++, p += rowsize)
     {
       GPixel *q = p;
       int j = 0;
-      // Process 4 pixels at a time
+
+      // Process 4 pixels (12 bytes) per iteration with all inputs loaded upfront
       for (; j + 3 < w; j += 4, q += 4)
         {
-          __m128i pix = _mm_loadu_si128((__m128i*)q);
-          
-          // Unpack Y, Cb, Cr to 16-bit
-          __m128i lo = _mm_unpacklo_epi8(pix, vZero);
-          __m128i hi = _mm_unpackhi_epi8(pix, vZero);
-          
-          // Convert to signed 16-bit by subtracting 0x80 behavior if needed, 
-          // but input is already signed char stored in unsigned char array.
-          // Correct for Pigeon transform offsets:
-          __m128i y = _mm_set_epi16(
-            (signed char)_mm_extract_epi8(pix, 12), (signed char)_mm_extract_epi8(pix, 8),
-            (signed char)_mm_extract_epi8(pix, 4),  (signed char)_mm_extract_epi8(pix, 0),
-            0, 0, 0, 0 // Just showing logic, will use efficient shuffle below
-          );
+          const signed char y0 = reinterpret_cast<const signed char*>(q)[0];
+          const signed char b0 = reinterpret_cast<const signed char*>(q)[1];
+          const signed char r0 = reinterpret_cast<const signed char*>(q)[2];
 
-          // Optimized Scalar-within-SIMD for the Pigeon math as it has tight cross-channel deps
-          for(int k=0; k<4; ++k) {
-             signed char* s = (signed char*)&q[k];
-             int t1 = s[1] >> 2;
-             int t2 = s[2] + (s[2] >> 1);
-             int t3 = s[0] + 128 - t1;
-             q[k].r = (unsigned char)max(0, min(255, s[0] + 128 + t2));
-             q[k].g = (unsigned char)max(0, min(255, t3 - (t2 >> 1)));
-             q[k].b = (unsigned char)max(0, min(255, t3 + (s[1] << 1)));
-          }
+          const signed char y1 = reinterpret_cast<const signed char*>(q)[3];
+          const signed char b1 = reinterpret_cast<const signed char*>(q)[4];
+          const signed char r1 = reinterpret_cast<const signed char*>(q)[5];
+
+          const signed char y2 = reinterpret_cast<const signed char*>(q)[6];
+          const signed char b2 = reinterpret_cast<const signed char*>(q)[7];
+          const signed char r2 = reinterpret_cast<const signed char*>(q)[8];
+
+          const signed char y3 = reinterpret_cast<const signed char*>(q)[9];
+          const signed char b3 = reinterpret_cast<const signed char*>(q)[10];
+          const signed char r3 = reinterpret_cast<const signed char*>(q)[11];
+
+          // Pixel 0
+          int t1_0 = b0 >> 2;
+          int t2_0 = r0 + (r0 >> 1);
+          int t3_0 = y0 + 128 - t1_0;
+
+          // Pixel 1
+          int t1_1 = b1 >> 2;
+          int t2_1 = r1 + (r1 >> 1);
+          int t3_1 = y1 + 128 - t1_1;
+
+          // Pixel 2
+          int t1_2 = b2 >> 2;
+          int t2_2 = r2 + (r2 >> 1);
+          int t3_2 = y2 + 128 - t1_2;
+
+          // Pixel 3
+          int t1_3 = b3 >> 2;
+          int t2_3 = r3 + (r3 >> 1);
+          int t3_3 = y3 + 128 - t1_3;
+
+          q[0].r = clamp255(y0 + 128 + t2_0);
+          q[0].g = clamp255(t3_0 - (t2_0 >> 1));
+          q[0].b = clamp255(t3_0 + (b0 << 1));
+
+          q[1].r = clamp255(y1 + 128 + t2_1);
+          q[1].g = clamp255(t3_1 - (t2_1 >> 1));
+          q[1].b = clamp255(t3_1 + (b1 << 1));
+
+          q[2].r = clamp255(y2 + 128 + t2_2);
+          q[2].g = clamp255(t3_2 - (t2_2 >> 1));
+          q[2].b = clamp255(t3_2 + (b2 << 1));
+
+          q[3].r = clamp255(y3 + 128 + t2_3);
+          q[3].g = clamp255(t3_3 - (t2_3 >> 1));
+          q[3].b = clamp255(t3_3 + (b3 << 1));
         }
-      // Cleanup
+
+      // Cleanup remaining pixels
       for (; j < w; j++, q++)
         {
-          signed char* s = (signed char*)q;
-          int t1 = s[1] >> 2 ; 
-          int t2 = s[2] + (s[2] >> 1);
-          int t3 = s[0] + 128 - t1;
-          q->r = max(0,min(255, s[0] + 128 + t2));
-          q->g = max(0,min(255, t3 - (t2 >> 1)));
-          q->b = max(0,min(255, t3 + (s[1] << 1)));
+          const signed char y = reinterpret_cast<const signed char*>(q)[0];
+          const signed char b = reinterpret_cast<const signed char*>(q)[1];
+          const signed char r = reinterpret_cast<const signed char*>(q)[2];
+
+          int t1 = b >> 2;
+          int t2 = r + (r >> 1);
+          int t3 = y + 128 - t1;
+
+          q->r = clamp255(y + 128 + t2);
+          q->g = clamp255(t3 - (t2 >> 1));
+          q->b = clamp255(t3 + (b << 1));
         }
     }
 }
