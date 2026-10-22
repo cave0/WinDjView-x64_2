@@ -15,6 +15,7 @@
 //	with this program; if not, write to the Free Software Foundation, Inc.,
 //	51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //	http://www.gnu.org/copyleft/gpl.html
+
 //#include "cstringt.h"
 #include "stdafx.h"
 #include "WinDjView.h"
@@ -409,7 +410,7 @@ void CDjVuView::OnDraw(CDC* pDC)
 				for (list<Annotation>::iterator lit = pageSettings.anno.begin(); lit != pageSettings.anno.end(); ++lit)
 					DrawAnnotation(&m_offscreenDC, *lit, nPage, &(*lit) == m_pHoverAnno);
 			}
-			// Í‡ÒÌ‡ˇ ÎËÌËˇ
+			// √™√∞√†√±√≠√†√ø √´√®√≠√®√ø
 			if (m_nRedLineType != None && m_RedLine->nPage == nPage)
 			{
 				int nRotate = (m_nRotate + page.info.nInitialRotate) % 4;
@@ -438,7 +439,7 @@ void CDjVuView::OnDraw(CDC* pDC)
 
 				DrawAnnotation(&m_offscreenDC, redLine, m_RedLine->nPage, false);
 			}
-			//ËÁÏÂÌÂÌËÂ ˆ‚ÂÚ‡ ÙÓÌ‡
+			//√®√ß√¨√•√≠√•√≠√®√• √∂√¢√•√≤√† √¥√Æ√≠√†
 			if (m_displaySettings.bChangePagesColor)
 			{
 				Annotation pageAnno = Annotation();
@@ -479,7 +480,7 @@ void CDjVuView::OnDraw(CDC* pDC)
 			// Draw transparent text on top of the image to assist dictionaries and
 			// other programs that hook to TextOut to find text under mouse pointer.
 			//if (m_nRedLineType == None)
-			//	DrawTransparentText(&m_offscreenDC, nPage); - ÓÚÍÎ˛˜ËÎ, Ú.Í. ‚˚Á˚‚‡ÂÚ ·‡„ Ò ÎËÌËÂÈ-‡ÌÌÓÚ‡ˆËÂÈ Ì‡ ‡Á‚ÓÓÚ‡ı
+			//	DrawTransparentText(&m_offscreenDC, nPage); - √Æ√≤√™√´√æ√∑√®√´, √≤.√™. √¢√ª√ß√ª√¢√†√•√≤ √°√†√£ √± √´√®√≠√®√•√©-√†√≠√≠√Æ√≤√†√∂√®√•√© √≠√† √∞√†√ß√¢√Æ√∞√Æ√≤√†√µ
 
 			pDC->RestoreDC(nSaveDC);
 		}
@@ -5235,14 +5236,14 @@ void CDjVuView::OnFindString()
 			int nResult = contentsTree->SearchInContents(strFind, pDlg->m_bMatchCase, pDlg->m_bWholeWordsOnly, false); 
 			switch (nResult)
 			{
-			case 1:	// ÒÓ‚Ô‡‰ÂÌËÂ ÂÒÚ¸	
+			case 1:	// √±√Æ√¢√Ø√†√§√•√≠√®√• √•√±√≤√º	
 				return;
 
-			case 2: // ÒÓ‚Ô‡‰ÂÌËˇ ·˚ÎË ‚˚¯Â ÔÓ ‰ÂÂ‚Û
+			case 2: // √±√Æ√¢√Ø√†√§√•√≠√®√ø √°√ª√´√® √¢√ª√∏√• √Ø√Æ √§√•√∞√•√¢√≥
 				GetMainFrame()->HilightStatusMessage(LoadString(IDS_SEARCH_CONTENTS_WRAPPED));
 				return;
 
-				//case 0: ÒÓ‚Ô‡‰ÂÌËÈ ÌÂÚ
+				//case 0: √±√Æ√¢√Ø√†√§√•√≠√®√© √≠√•√≤
 			} 
 		}
 		else
@@ -5521,14 +5522,14 @@ void CDjVuView::OnFindPrev()
 			int nResult = contentsTree->SearchInContents(strFind, pDlg->m_bMatchCase, pDlg->m_bWholeWordsOnly, true); 
 			switch (nResult)
 			{
-			case 1:	// ÒÓ‚Ô‡‰ÂÌËÂ ÂÒÚ¸	
+			case 1:	// √±√Æ√¢√Ø√†√§√•√≠√®√• √•√±√≤√º	
 				return;
 
-			case 2: // ÒÓ‚Ô‡‰ÂÌËˇ ·˚ÎË ‚˚¯Â ÔÓ ‰ÂÂ‚Û
+			case 2: // √±√Æ√¢√Ø√†√§√•√≠√®√ø √°√ª√´√® √¢√ª√∏√• √Ø√Æ √§√•√∞√•√¢√≥
 				GetMainFrame()->HilightStatusMessage(LoadString(IDS_SEARCH_CONTENTS_WRAPPED));
 				return;
 
-				//case 0: ÒÓ‚Ô‡‰ÂÌËÈ ÌÂÚ
+				//case 0: √±√Æ√¢√Ø√†√§√•√≠√®√© √≠√•√≤
 			} 
 		}
 		else
@@ -6859,7 +6860,7 @@ bool CDjVuView::ParseCGI(GUTF8String& cgiLink, int& Num, int& X, int& Y, bool &b
 {
 	int nPageNum = cgiLink.search("&pageno=");
 	int nPageTitle = cgiLink.search("&page=");
-	//ÂÒÎË ËÒÍ‡Ú¸ ÚÓÎ¸ÍÓ &showposition, ÚÓ Num ÔËÒ˚Î‡Ú¸ >=1
+	//√•√±√´√® √®√±√™√†√≤√º √≤√Æ√´√º√™√Æ &showposition, √≤√Æ Num √Ø√∞√®√±√ª√´√†√≤√º >=1
 	if (nPageNum == -1 && nPageTitle == -1 && Num == -1) 
 		return false;
 	if (Num == -1)
@@ -7019,7 +7020,7 @@ bool CDjVuView::ParseCGI(GUTF8String& cgiLink, int& Num, int& X, int& Y, bool &b
 		Y = nPosY; //(int)((1 - ky) * szPage.cy);
 		break;
 
-	case 1: //ÎÂ‚Ó
+	case 1: //√´√•√¢√Æ
 		X = szPage.cy - nPosY; //(int)((1 - ky) * szPage.cy);
 		Y = nPosX; //(int)((1 - kx) * szPage.cx);
 		break;
@@ -7029,7 +7030,7 @@ bool CDjVuView::ParseCGI(GUTF8String& cgiLink, int& Num, int& X, int& Y, bool &b
 		Y = szPage.cy - nPosY; //(int)(ky * szPage.cy);
 		break;
 
-	case 3: //Ô‡‚Ó
+	case 3: //√Ø√∞√†√¢√Æ
 		X = nPosY; //(int)(ky * szPage.cy);
 		Y = szPage.cx - nPosX; //(int)(kx * szPage.cx);
 		break;
@@ -7582,7 +7583,7 @@ void CDjVuView::GetNormalizedText(wstring& text, bool bSelected, int nMaxLength,
 				 nWordPos < text.length() && text[nWordPos] <= 0x20;
 				 ++nWordPos)
 			{
-				if (wcschr(L"\n\r\013\035\037\038", text[nWordPos]) != NULL) //‰Ó·‡‚ËÎ 037: const char DjVuTXT::end_of_paragraph = 037; // US: Unit Separator
+				if (wcschr(L"\n\r\013\035\037\038", text[nWordPos]) != NULL) //√§√Æ√°√†√¢√®√´ 037: const char DjVuTXT::end_of_paragraph = 037; // US: Unit Separator
 					bFoundEOL = true;
 			}
 
@@ -9098,7 +9099,7 @@ void CDjVuView::GetTextWithoutHyphen(GUTF8String& text)
 			nWordPos < wtext.length() && wtext[nWordPos] <= 0x20;
 			++nWordPos)
 		{
-			if (wcschr(L"\n\r\013\035\037\038", wtext[nWordPos]) != NULL) //‰Ó·‡‚ËÎ 037: const char DjVuTXT::end_of_paragraph = 037; // US: Unit Separator
+			if (wcschr(L"\n\r\013\035\037\038", wtext[nWordPos]) != NULL) //√§√Æ√°√†√¢√®√´ 037: const char DjVuTXT::end_of_paragraph = 037; // US: Unit Separator
 				bFoundEOL = true;
 		}
 
@@ -9154,7 +9155,7 @@ void CDjVuView::GetTextWithoutHyphen(GUTF8String& text)
 size_t CDjVuView::FindHyphen(wstring& wtext, size_t off)
 {
 	size_t nHyphen = wtext.find(L'-', off);
-	size_t nHyphen2 = wtext.find(L'¨', off);
+	size_t nHyphen2 = wtext.find(L'¬¨', off);
 	return nHyphen < nHyphen2 ? nHyphen : nHyphen2;
 }
 
@@ -9673,8 +9674,8 @@ GUTF8String CDjVuView::ChangeYoYe(const GUTF8String& text, bool bReplaceNBS)
 {
 	if (text.length() > 0)
 	{
-		CString strYo = _T("®");
-		CString nbSpace = CString((wchar_t)0xA0); //Á‡ÏÂÌ‡ ÌÂ‡Á˚‚ÌÓ„Ó ÔÓ·ÂÎ‡ Ì‡ Ó·˚˜Ì˚È
+		CString strYo = _T("¬®");
+		CString nbSpace = CString((wchar_t)0xA0); //√ß√†√¨√•√≠√† √≠√•√∞√†√ß√∞√ª√¢√≠√Æ√£√Æ √Ø√∞√Æ√°√•√´√† √≠√† √Æ√°√ª√∑√≠√ª√©
 
 		GUTF8String strFind = MakeUTF8String(strYo);
 		GUTF8String strFind2 = MakeUTF8String(nbSpace);
@@ -9683,7 +9684,7 @@ GUTF8String CDjVuView::ChangeYoYe(const GUTF8String& text, bool bReplaceNBS)
 		if (text.search(strFind) > -1 || bNeedReplaceNBS)
 		{
 			CString str = MakeCString(text);
-			str.Replace(strYo,_T("≈"));
+			str.Replace(strYo,_T("√Ö"));
 			if (bNeedReplaceNBS)
 				str.Replace(nbSpace,_T(" "));
 
@@ -9747,22 +9748,22 @@ GUTF8String CDjVuView::TrimEnding(const GUTF8String& text, bool bOnlySpace)
 		MakeWString(text,wtext);
 		int nLastPos = wtext.length() - 1;
 		int nBeforeLast = nLastPos - 1;
-		if (wcschr(L"¿Œ‹»€", wtext[nLastPos]) != NULL)
+		if (wcschr(L"√Ä√é√ú√à√õ", wtext[nLastPos]) != NULL)
 		{
 			strResult = MakeUTF8String(wtext.substr(0, nLastPos));
 		}
-		else if (wcschr(L"…", wtext[nLastPos]) != NULL && wcschr(L"Œ»€", wtext[nBeforeLast]) != NULL)
+		else if (wcschr(L"√â", wtext[nLastPos]) != NULL && wcschr(L"√é√à√õ", wtext[nBeforeLast]) != NULL)
 		{
 			strResult = MakeUTF8String(wtext.substr(0, nBeforeLast));
 		}
-		else if (wcschr(L"ﬂ", wtext[nLastPos]) != NULL)
+		else if (wcschr(L"√ü", wtext[nLastPos]) != NULL)
 		{
-			int n = wcschr(L"¿ﬂ", wtext[nBeforeLast]) != NULL ? nBeforeLast : nLastPos;
+			int n = wcschr(L"√Ä√ü", wtext[nBeforeLast]) != NULL ? nBeforeLast : nLastPos;
 			strResult = MakeUTF8String(wtext.substr(0, n));
 		}
-		else if (wcschr(L"≈", wtext[nLastPos]) != NULL)
+		else if (wcschr(L"√Ö", wtext[nLastPos]) != NULL)
 		{
-			int n = wcschr(L"Œ≈»€", wtext[nBeforeLast]) != NULL ? nBeforeLast : nLastPos;
+			int n = wcschr(L"√é√Ö√à√õ", wtext[nBeforeLast]) != NULL ? nBeforeLast : nLastPos;
 			strResult = MakeUTF8String(wtext.substr(0, n));
 		}
 	}
