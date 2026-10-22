@@ -25,6 +25,7 @@
 #include "DjVuDoc.h"
 #include "DjVuView.h"
 #include "MyGdiPlus.h"
+#include <emmintrin.h>
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -107,20 +108,20 @@ CDIB* RenderPixmap(GPixmap& pm, const CRect& rcClip, const CDisplaySettings& dis
 	double fGamma = displaySettings.GetGamma();
 	if (fGamma != 1.0 || nBrightness != 0 || nContrast != 0 || displaySettings.bInvertColors)
 	{
-		// Fast-path: 64-bit word inversion when no gamma/brightness/contrast adjustments are active
+		// 128-bit SIMD vector inversion (Night Mode) when no other color adjustments are active
 		if (displaySettings.bInvertColors && fGamma == 1.0 && nBrightness == 0 && nContrast == 0)
 		{
+			const __m128i vInvert = _mm_set1_epi32(-1);
 			for (int y = rcClip.top; y < rcClip.bottom; ++y, pBits += nRowLength)
 			{
 				const BYTE* pSrc = reinterpret_cast<const BYTE*>(pm[y] + rcClip.left);
 				int x = 0;
-				while (x + 8 <= nRowBytes)
+				while (x + 16 <= nRowBytes)
 				{
-					uint64_t chunk;
-					memcpy(&chunk, pSrc + x, sizeof(uint64_t));
-					chunk = ~chunk;
-					memcpy(pBits + x, &chunk, sizeof(uint64_t));
-					x += 8;
+					__m128i val = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pSrc + x));
+					val = _mm_xor_si128(val, vInvert);
+					_mm_storeu_si128(reinterpret_cast<__m128i*>(pBits + x), val);
+					x += 16;
 				}
 				while (x < nRowBytes)
 				{
@@ -144,11 +145,28 @@ CDIB* RenderPixmap(GPixmap& pm, const CRect& rcClip, const CDisplaySettings& dis
 			if (fGamma != 1.0)
 				BuildGammaTable(fGamma, table);
 
+			// 8-way unrolled table mapping loop
 			for (int y = rcClip.top; y < rcClip.bottom; ++y, pBits += nRowLength)
 			{
 				const BYTE* pSrc = reinterpret_cast<const BYTE*>(pm[y] + rcClip.left);
-				for (int x = 0; x < nRowBytes; ++x)
+				int x = 0;
+				while (x + 8 <= nRowBytes)
+				{
+					pBits[x + 0] = table[pSrc[x + 0]];
+					pBits[x + 1] = table[pSrc[x + 1]];
+					pBits[x + 2] = table[pSrc[x + 2]];
+					pBits[x + 3] = table[pSrc[x + 3]];
+					pBits[x + 4] = table[pSrc[x + 4]];
+					pBits[x + 5] = table[pSrc[x + 5]];
+					pBits[x + 6] = table[pSrc[x + 6]];
+					pBits[x + 7] = table[pSrc[x + 7]];
+					x += 8;
+				}
+				while (x < nRowBytes)
+				{
 					pBits[x] = table[pSrc[x]];
+					++x;
+				}
 			}
 		}
 	}
@@ -525,34 +543,64 @@ void CDIB::Draw(CDC* pDC, const CPoint& ptOffset)
 
 void CDIB::Draw(CDC* pDC, const CPoint& ptOffset, const CSize& szScaled)
 {
+	Draw(pDC, ptOffset, szScaled, CRect(ptOffset, szScaled));
+}
+
+void CDIB::Draw(CDC* pDC, const CPoint& ptOffset, const CSize& szScaled, const CRect& rcClip)
+{
+	if (szScaled.cx <= 0 || szScaled.cy <= 0)
+		return;
+
 	if (szScaled.cx == m_pBMI->bmiHeader.biWidth && szScaled.cy == m_pBMI->bmiHeader.biHeight)
 	{
 		Draw(pDC, ptOffset);
+		return;
 	}
-	else
-	{
-		ASSERT(pDC != NULL && m_pBits != NULL);
-		pDC->SetStretchBltMode(COLORONCOLOR);
-		::StretchDIBits(pDC->m_hDC,
-			ptOffset.x, ptOffset.y, szScaled.cx, szScaled.cy,
-			0, 0, m_pBMI->bmiHeader.biWidth, m_pBMI->bmiHeader.biHeight,
-			m_pBits, m_pBMI, DIB_RGB_COLORS, SRCCOPY);
-	}
+
+	ASSERT(pDC != NULL && m_pBits != NULL);
+
+	CRect rcDest(ptOffset, szScaled);
+	CRect rcVisible;
+	if (!rcVisible.IntersectRect(rcDest, rcClip))
+		return;
+
+	int srcW = m_pBMI->bmiHeader.biWidth;
+	int srcH = abs(m_pBMI->bmiHeader.biHeight);
+
+	int srcX = static_cast<int>(1LL * (rcVisible.left - rcDest.left) * srcW / szScaled.cx);
+	int srcY = static_cast<int>(1LL * (rcVisible.top - rcDest.top) * srcH / szScaled.cy);
+	int srcSubW = static_cast<int>(1LL * rcVisible.Width() * srcW / szScaled.cx) + 1;
+	int srcSubH = static_cast<int>(1LL * rcVisible.Height() * srcH / szScaled.cy) + 1;
+
+	srcX = max(0, min(srcX, srcW - 1));
+	srcY = max(0, min(srcY, srcH - 1));
+	srcSubW = min(srcSubW, srcW - srcX);
+	srcSubH = min(srcSubH, srcH - srcY);
+
+	int gdiSrcY = (m_pBMI->bmiHeader.biHeight > 0) ? (srcH - (srcY + srcSubH)) : srcY;
+
+	pDC->SetStretchBltMode(COLORONCOLOR);
+	::StretchDIBits(pDC->m_hDC,
+		rcVisible.left, rcVisible.top, rcVisible.Width(), rcVisible.Height(),
+		srcX, gdiSrcY, srcSubW, srcSubH,
+		m_pBits, m_pBMI, DIB_RGB_COLORS, SRCCOPY);
 }
 
 void CDIB::DrawDC(CDC* pDC, const CPoint& ptOffset)
 {
 	ASSERT(pDC != NULL && m_hObject != NULL);
 
-	CDC dcSrc;
-	dcSrc.CreateCompatibleDC(pDC);
-	CBitmap* pOldBmpSrc = dcSrc.SelectObject(this);
+	static thread_local HDC s_hSharedSrcDC = NULL;
+	if (s_hSharedSrcDC == NULL)
+		s_hSharedSrcDC = ::CreateCompatibleDC(NULL);
 
-	pDC->BitBlt(ptOffset.x, ptOffset.y,
+	HGDIOBJ hOldBmpSrc = ::SelectObject(s_hSharedSrcDC, m_hObject);
+
+	::BitBlt(pDC->m_hDC, ptOffset.x, ptOffset.y,
 		m_pBMI->bmiHeader.biWidth, m_pBMI->bmiHeader.biHeight,
-        &dcSrc, 0, 0, SRCCOPY);
+		s_hSharedSrcDC, 0, 0, SRCCOPY);
 
-	dcSrc.SelectObject(pOldBmpSrc);
+	::SelectObject(s_hSharedSrcDC, hOldBmpSrc);
 }
 
 void CDIB::DrawDC(CDC* pDC, const CPoint& ptOffset, const CRect& rcPart)
@@ -562,14 +610,16 @@ void CDIB::DrawDC(CDC* pDC, const CPoint& ptOffset, const CRect& rcPart)
 		   rcPart.right <= m_pBMI->bmiHeader.biWidth &&
 		   rcPart.bottom <= m_pBMI->bmiHeader.biHeight);
 
-	CDC dcSrc;
-	dcSrc.CreateCompatibleDC(pDC);
-	CBitmap* pOldBmpSrc = dcSrc.SelectObject(this);
+	static thread_local HDC s_hSharedSrcDC = NULL;
+	if (s_hSharedSrcDC == NULL)
+		s_hSharedSrcDC = ::CreateCompatibleDC(NULL);
 
-	pDC->BitBlt(ptOffset.x, ptOffset.y, rcPart.Width(), rcPart.Height(),
-		&dcSrc, rcPart.left, rcPart.top, SRCCOPY);
+	HGDIOBJ hOldBmpSrc = ::SelectObject(s_hSharedSrcDC, m_hObject);
 
-	dcSrc.SelectObject(pOldBmpSrc);
+	::BitBlt(pDC->m_hDC, ptOffset.x, ptOffset.y, rcPart.Width(), rcPart.Height(),
+		s_hSharedSrcDC, rcPart.left, rcPart.top, SRCCOPY);
+
+	::SelectObject(s_hSharedSrcDC, hOldBmpSrc);
 }
 
 void CDIB::SetDPI(int nDPI)
@@ -990,75 +1040,15 @@ void HighlightPolygon(CDC* pDC, const POINT* points, int nCount, COLORREF color,
 	if (!rcClip.IntersectRect(CRect(rcClip), rcBounds))
 		return;
 
-	COffscreenDC offscreenDC, maskDC;
-
-	offscreenDC.Create(pDC, rcClip.Size(), 24);
-	maskDC.Create(pDC, rcClip.Size(), 8);
-	CDIB* pDIB = offscreenDC.GetDIB();
-	CDIB* pMask = maskDC.GetDIB();
-	if (pDIB == NULL || pDIB->m_hObject == NULL ||
-			pMask == NULL || pMask->m_hObject == NULL)
+	HRGN hRgn = ::CreatePolygonRgn(points, nCount, WINDING);
+	if (hRgn != NULL)
 	{
-		offscreenDC.Release();
-		maskDC.Release();
-		return;
+		int nSaved = pDC->SaveDC();
+		::ExtSelectClipRgn(pDC->m_hDC, hRgn, RGN_AND);
+		HighlightRect(pDC, rcClip, color, fTransparency);
+		pDC->RestoreDC(nSaved);
+		::DeleteObject(hRgn);
 	}
-
-	ASSERT(pDIB->GetBitsPerPixel() == 24);
-	ASSERT(pMask->GetBitsPerPixel() == 8);
-	offscreenDC.BitBlt(0, 0, rcClip.Width(), rcClip.Height(), pDC, rcClip.left, rcClip.top, SRCCOPY);
-
-	maskDC.SetViewportOrg(-rcClip.TopLeft());
-	maskDC.FillSolidRect(rcClip, RGB(255, 255, 255));
-
-	CBrush brushBlack(RGB(0, 0, 0));
-	CPen penBlack(PS_SOLID, 1, RGB(0, 0, 0));
-	CBrush* pOldBrush = maskDC.SelectObject(&brushBlack);
-	CPen* pOldPen = maskDC.SelectObject(&penBlack);
-	maskDC.SetPolyFillMode(WINDING);
-
-	maskDC.Polygon((POINT*) points, nCount);
-
-	maskDC.SelectObject(pOldPen);
-	maskDC.SelectObject(pOldBrush);
-
-	int nRowLength = CalculateDIBPitch(pDIB->GetWidth(), 24);
-	int nMaskRowLength = CalculateDIBPitch(pMask->GetWidth(), 8);
-
-	LPBYTE pBits = pDIB->GetBits();
-	LPBYTE pMaskBits = pMask->GetBits();
-
-	BYTE tableRed[256], tableGreen[256], tableBlue[256];
-	for (int i = 0; i < 256; ++i)
-		tableRed[i] = tableGreen[i] = tableBlue[i] = static_cast<BYTE>(i);
-
-	BuildTransparencyTable(fTransparency, GetRValue(color), tableRed);
-	BuildTransparencyTable(fTransparency, GetGValue(color), tableGreen);
-	BuildTransparencyTable(fTransparency, GetBValue(color), tableBlue);
-
-	for (int y = 0; y < rcClip.Height(); ++y, pBits += nRowLength, pMaskBits += nMaskRowLength)
-	{
-		LPBYTE pPixel = pBits;
-		LPBYTE pMaskPixel = pMaskBits;
-		for (int x = 0; x < rcClip.Width(); ++x, ++pMaskPixel)
-		{
-			if (*pMaskPixel == 0)
-			{
-				*pPixel = tableBlue[*pPixel];
-				++pPixel;
-				*pPixel = tableGreen[*pPixel];
-				++pPixel;
-				*pPixel = tableRed[*pPixel];
-				++pPixel;
-			}
-			else
-				pPixel += 3;
-		}
-	}
-
-	pDC->BitBlt(rcClip.left, rcClip.top, rcClip.Width(), rcClip.Height(), &offscreenDC, 0, 0, SRCCOPY);
-	maskDC.Release();
-	offscreenDC.Release();
 }
 
 void DrawArrow(CDC* pDC, int nArrowType, const CRect& rect, COLORREF color)

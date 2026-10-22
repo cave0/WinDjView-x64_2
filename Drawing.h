@@ -35,6 +35,7 @@ public:
 	virtual ~CDIB();
 	void Draw(CDC* pDC, const CPoint& ptOffset);
 	void Draw(CDC* pDC, const CPoint& ptOffset, const CSize& szScale);
+	void Draw(CDC* pDC, const CPoint& ptOffset, const CSize& szScale, const CRect& rcClip);
 	void DrawDC(CDC* pDC, const CPoint& ptOffset);
 	void DrawDC(CDC* pDC, const CPoint& ptOffset, const CRect& rcPart);
 

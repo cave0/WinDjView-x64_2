@@ -820,8 +820,8 @@ void CDjVuView::DrawPage(CDC* pDC, int nPage, const CRect& rcClipDoc)
 	}
 	else
 	{
-		// Offscreen bitmap has yet wrong size, stretch it
-		page.pBitmap->Draw(pDC, page.ptOffset - ptScroll, page.szBitmap);
+		// Offscreen bitmap has yet wrong size, stretch only the visible clipped region
+		page.pBitmap->Draw(pDC, page.ptOffset - ptScroll, page.szBitmap, rcClip - ptScroll);
 	}
 
 	CRect rcBorder(page.ptOffset, page.szBitmap);

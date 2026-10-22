@@ -345,7 +345,29 @@ GP<GPixmap> RescalePnm(GP<GPixmap> pSrc, UINT nWidth, UINT nHeight)
 
 				PixelAcc* pAcc = acc;
 				const GPixel* xP = xelrow;
-				for (UINT col = 0; col < cols; ++col, ++xP, ++pAcc)
+				UINT col = 0;
+				for (; col + 4 <= cols; col += 4)
+				{
+					pAcc[0].r += fracrowleft * xP[0].r;
+					pAcc[0].g += fracrowleft * xP[0].g;
+					pAcc[0].b += fracrowleft * xP[0].b;
+
+					pAcc[1].r += fracrowleft * xP[1].r;
+					pAcc[1].g += fracrowleft * xP[1].g;
+					pAcc[1].b += fracrowleft * xP[1].b;
+
+					pAcc[2].r += fracrowleft * xP[2].r;
+					pAcc[2].g += fracrowleft * xP[2].g;
+					pAcc[2].b += fracrowleft * xP[2].b;
+
+					pAcc[3].r += fracrowleft * xP[3].r;
+					pAcc[3].g += fracrowleft * xP[3].g;
+					pAcc[3].b += fracrowleft * xP[3].b;
+
+					pAcc += 4;
+					xP += 4;
+				}
+				for (; col < cols; ++col, ++xP, ++pAcc)
 				{
 					pAcc->r += fracrowleft * xP->r;
 					pAcc->g += fracrowleft * xP->g;
@@ -370,7 +392,54 @@ GP<GPixmap> RescalePnm(GP<GPixmap> pSrc, UINT nWidth, UINT nHeight)
 			PixelAcc* pAcc = acc;
 			const GPixel* xP = xelrow;
 			GPixel* nxP = tempxelrow;
-			for (UINT col = 0; col < cols; ++col, ++xP, ++nxP, ++pAcc)
+			UINT col = 0;
+			for (; col + 4 <= cols; col += 4)
+			{
+				UINT r0 = pAcc[0].r + fracrowtofill * xP[0].r;
+				UINT g0 = pAcc[0].g + fracrowtofill * xP[0].g;
+				UINT b0 = pAcc[0].b + fracrowtofill * xP[0].b;
+				nxP[0].r = (BYTE) (r0 >> SCALESHIFT);
+				nxP[0].g = (BYTE) (g0 >> SCALESHIFT);
+				nxP[0].b = (BYTE) (b0 >> SCALESHIFT);
+				pAcc[0].r = HALFSCALE;
+				pAcc[0].g = HALFSCALE;
+				pAcc[0].b = HALFSCALE;
+
+				UINT r1 = pAcc[1].r + fracrowtofill * xP[1].r;
+				UINT g1 = pAcc[1].g + fracrowtofill * xP[1].g;
+				UINT b1 = pAcc[1].b + fracrowtofill * xP[1].b;
+				nxP[1].r = (BYTE) (r1 >> SCALESHIFT);
+				nxP[1].g = (BYTE) (g1 >> SCALESHIFT);
+				nxP[1].b = (BYTE) (b1 >> SCALESHIFT);
+				pAcc[1].r = HALFSCALE;
+				pAcc[1].g = HALFSCALE;
+				pAcc[1].b = HALFSCALE;
+
+				UINT r2 = pAcc[2].r + fracrowtofill * xP[2].r;
+				UINT g2 = pAcc[2].g + fracrowtofill * xP[2].g;
+				UINT b2 = pAcc[2].b + fracrowtofill * xP[2].b;
+				nxP[2].r = (BYTE) (r2 >> SCALESHIFT);
+				nxP[2].g = (BYTE) (g2 >> SCALESHIFT);
+				nxP[2].b = (BYTE) (b2 >> SCALESHIFT);
+				pAcc[2].r = HALFSCALE;
+				pAcc[2].g = HALFSCALE;
+				pAcc[2].b = HALFSCALE;
+
+				UINT r3 = pAcc[3].r + fracrowtofill * xP[3].r;
+				UINT g3 = pAcc[3].g + fracrowtofill * xP[3].g;
+				UINT b3 = pAcc[3].b + fracrowtofill * xP[3].b;
+				nxP[3].r = (BYTE) (r3 >> SCALESHIFT);
+				nxP[3].g = (BYTE) (g3 >> SCALESHIFT);
+				nxP[3].b = (BYTE) (b3 >> SCALESHIFT);
+				pAcc[3].r = HALFSCALE;
+				pAcc[3].g = HALFSCALE;
+				pAcc[3].b = HALFSCALE;
+
+				pAcc += 4;
+				xP += 4;
+				nxP += 4;
+			}
+			for (; col < cols; ++col, ++xP, ++nxP, ++pAcc)
 			{
 				UINT r = pAcc->r + fracrowtofill * xP->r;
 				UINT g = pAcc->g + fracrowtofill * xP->g;
@@ -626,7 +695,17 @@ GP<GBitmap> RescalePnm(GP<GBitmap> pSrc, UINT nWidth, UINT nHeight)
 
 				UINT* prs = rs;
 				const BYTE* xP = xelrow;
-				for (UINT col = 0; col < cols; ++col, ++xP, ++prs)
+				UINT col = 0;
+				for (; col + 4 <= cols; col += 4)
+				{
+					prs[0] += fracrowleft * grays[xP[0]];
+					prs[1] += fracrowleft * grays[xP[1]];
+					prs[2] += fracrowleft * grays[xP[2]];
+					prs[3] += fracrowleft * grays[xP[3]];
+					prs += 4;
+					xP += 4;
+				}
+				for (; col < cols; ++col, ++xP, ++prs)
 				{
 					*prs += fracrowleft * grays[*xP];
 				}
@@ -649,7 +728,30 @@ GP<GBitmap> RescalePnm(GP<GBitmap> pSrc, UINT nWidth, UINT nHeight)
 			UINT* prs = rs;
 			const BYTE* xP = xelrow;
 			BYTE* nxP = tempxelrow;
-			for (UINT col = 0; col < cols; ++col, ++xP, ++nxP, ++prs)
+			UINT col = 0;
+			for (; col + 4 <= cols; col += 4)
+			{
+				UINT r0 = prs[0] + fracrowtofill * grays[xP[0]];
+				nxP[0] = (BYTE) (r0 >> SCALESHIFT);
+				prs[0] = HALFSCALE;
+
+				UINT r1 = prs[1] + fracrowtofill * grays[xP[1]];
+				nxP[1] = (BYTE) (r1 >> SCALESHIFT);
+				prs[1] = HALFSCALE;
+
+				UINT r2 = prs[2] + fracrowtofill * grays[xP[2]];
+				nxP[2] = (BYTE) (r2 >> SCALESHIFT);
+				prs[2] = HALFSCALE;
+
+				UINT r3 = prs[3] + fracrowtofill * grays[xP[3]];
+				nxP[3] = (BYTE) (r3 >> SCALESHIFT);
+				prs[3] = HALFSCALE;
+
+				prs += 4;
+				xP += 4;
+				nxP += 4;
+			}
+			for (; col < cols; ++col, ++xP, ++nxP, ++prs)
 			{
 				UINT r = *prs + fracrowtofill * grays[*xP];
 				*nxP = (BYTE) (r >> SCALESHIFT);
