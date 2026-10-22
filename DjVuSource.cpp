@@ -27,6 +27,7 @@
 #define new DEBUG_NEW
 #endif
 
+
 bool DjVuSource::CheckMatchTitle(CString strNewTitle, int& nPage, int nLastPage)
 {
 	for (; nPage <= nLastPage; ++nPage)
@@ -1095,7 +1096,7 @@ DjVuSource::DjVuSource(const CString& strFileName, GP<DjVuDocument> pDoc, DocSet
 
 	PageInfo info = GetPageInfo(0, false, true);
 
-	if (info.pAnt != NULL) // ïîäóìàòü íàäî ëè ýòî?
+	if (info.pAnt != NULL) // Ã¯Ã®Ã¤Ã³Ã¬Ã Ã²Ã¼ Ã­Ã Ã¤Ã® Ã«Ã¨ Ã½Ã²Ã®?
 	{
 		//m_dictInfo.ReadPageIndex(info.pAnt->metadata[pszPageIndexKey]);
 		//m_dictInfo.ReadCharMap(info.pAnt->metadata[pszCharMapKey]);
