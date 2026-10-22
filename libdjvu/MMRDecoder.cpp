@@ -776,6 +776,7 @@ MMRDecoder::scanruns(const unsigned short **endptr)
             // -- Unknown MMR code.
             G_THROW(invalid_mmr_data);
           }
+		}
       }
       // Next reference run: fused 32-bit load for pair of 16-bit run lengths
       for(; b1<=a0 && b1<width; pr+=2)
