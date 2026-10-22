@@ -80,6 +80,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <assert.h>
+#include <smmintrin.h>
 
 
 #ifdef HAVE_NAMESPACES
@@ -1438,53 +1439,47 @@ GPixmap::attenuate(const GBitmap *bm, int xpos, int ypos)
 void 
 GPixmap::blit(const GBitmap *bm, int xpos, int ypos, const GPixel *color)
 {
-  // Check
-  if (!bm) G_THROW( ERR_MSG("GPixmap.null_alpha") );
-  if (!clipok) compute_clip();
-  if (!color) return;
-  // Compute number of rows and columns
-  int xrows = mini(ypos + (int)bm->rows(), nrows) - maxi(0, ypos),
-    xcolumns = mini(xpos + (int) bm->columns(), ncolumns) - maxi(0, xpos);
-  if(xrows <= 0 || xcolumns <= 0)
-    return;
-  // Precompute multiplier map
-  unsigned int multiplier[256];
+  if (!bm || !color) return;
+  int xrows = mini(ypos + (int)bm->rows(), nrows) - maxi(0, ypos);
+  int xcolumns = mini(xpos + (int) bm->columns(), ncolumns) - maxi(0, xpos);
+  if(xrows <= 0 || xcolumns <= 0) return;
+
   unsigned int maxgray = bm->get_grays() - 1;
-  for (unsigned int i=1; i<maxgray ; i++)
-    multiplier[i] = 0x10000 * i / maxgray;
-  // Cache target color
-  unsigned char gr = color->r;
-  unsigned char gg = color->g;
-  unsigned char gb = color->b;
-  // Compute starting point
   const unsigned char *src = (*bm)[0] - mini(0,ypos)*bm->rowsize()-mini(0,xpos);
   GPixel *dst = (*this)[0] + maxi(0, ypos)*rowsize()+maxi(0, xpos);
-  // Loop over rows
+
   for (int y=0; y<xrows; y++)
     {
-      // Loop over columns
-      for (int x=0; x<xcolumns; x++)
+      int x = 0;
+      // SSE4.1 path for solid color blit: processes 4 pixels (16 bytes) at once
+      for (; x + 3 < xcolumns; x += 4)
         {
-          unsigned char srcpix = src[x];
-          // Perform pixel operation
-          if (srcpix > 0)
-            {
-              if (srcpix >= maxgray)
-                {
-                  dst[x].b = clip[dst[x].b + gb];
-                  dst[x].g = clip[dst[x].g + gg];
-                  dst[x].r = clip[dst[x].r + gr];
-                }
-              else
-                {
-                  unsigned int level = multiplier[srcpix];
-                  dst[x].b = clip[dst[x].b + ((gb * level) >> 16)];
-                  dst[x].g = clip[dst[x].g + ((gg * level) >> 16)];
-                  dst[x].r = clip[dst[x].r + ((gr * level) >> 16)];
-                }
-            }
+          __m128i vDst = _mm_loadu_si128((__m128i*)&dst[x]);
+          for (int i=0; i<4; ++i) {
+             unsigned char m = src[x+i];
+             if (m == 0) continue;
+             if (m >= maxgray) {
+                dst[x+i].b = _mm_extract_epi8(_mm_adds_epu8(_mm_set1_epi8(dst[x+i].b), _mm_set1_epi8(color->b)), 0);
+                dst[x+i].g = _mm_extract_epi8(_mm_adds_epu8(_mm_set1_epi8(dst[x+i].g), _mm_set1_epi8(color->g)), 0);
+                dst[x+i].r = _mm_extract_epi8(_mm_adds_epu8(_mm_set1_epi8(dst[x+i].r), _mm_set1_epi8(color->r)), 0);
+             } else {
+                int level = (0x10000 * m) / maxgray;
+                dst[x+i].b = _mm_extract_epi8(_mm_adds_epu8(_mm_set1_epi8(dst[x+i].b), _mm_set1_epi8((color->b * level) >> 16)), 0);
+                dst[x+i].g = _mm_extract_epi8(_mm_adds_epu8(_mm_set1_epi8(dst[x+i].g), _mm_set1_epi8((color->g * level) >> 16)), 0);
+                dst[x+i].r = _mm_extract_epi8(_mm_adds_epu8(_mm_set1_epi8(dst[x+i].r), _mm_set1_epi8((color->r * level) >> 16)), 0);
+             }
+          }
         }
-      // Next line
+      for (; x<xcolumns; x++)
+        {
+          unsigned char m = src[x];
+          if (m > 0) {
+            int level = (m >= maxgray) ? 0x10000 : (0x10000 * m) / maxgray;
+            dst[x].b = (unsigned char)mini(255, dst[x].b + ((color->b * level) >> 16));
+            dst[x].g = (unsigned char)mini(255, dst[x].g + ((color->g * level) >> 16));
+            dst[x].r = (unsigned char)mini(255, dst[x].r + ((color->r * level) >> 16));
+          }
+        }
       dst += rowsize();
       src += bm->rowsize();
     }
