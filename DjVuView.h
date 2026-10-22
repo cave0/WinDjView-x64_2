@@ -246,6 +246,10 @@ protected:
 	};
 
 	RedLine* m_RedLine;
+	bool m_bAutoScrollTimerActive;
+	void StartAutoScrollTimer();
+	void StopAutoScrollTimer();
+	CRect GetRedLineScreenRect(int nPage, const CPoint& ptRedLine);
 
 	struct Page
 	{
@@ -489,6 +493,7 @@ protected:
 	afx_msg void OnSetFocus(CWnd* pOldWnd);
 	afx_msg void OnKillFocus(CWnd* pNewWnd);
 	afx_msg void OnCancelMode();
+	afx_msg void OnCaptureChanged(CWnd* pWnd);
 	afx_msg BOOL OnSetCursor(CWnd* pWnd, UINT nHitTest, UINT message);
 	afx_msg void OnLButtonDown(UINT nFlags, CPoint point);
 	afx_msg void OnLButtonUp(UINT nFlags, CPoint point);
