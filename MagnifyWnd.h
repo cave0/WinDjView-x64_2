@@ -47,7 +47,9 @@ protected:
 	CDjVuView* m_pView;
 	CDjVuView* m_pOwner;
 	CRect m_rcPos;
-	COffscreenDC m_offscreenDC;
+	CDC m_memDC;
+	CBitmap m_memBitmap;
+	CSize m_szMemBitmap;
 
 	typedef BOOL (WINAPI* pfnUpdateLayeredWindow)(HWND hwnd, HDC hdcDst,
 			POINT* pptDst, SIZE* psize, HDC hdcSrc, POINT* pptSrc,

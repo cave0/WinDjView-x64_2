@@ -108,17 +108,30 @@ void CMagnifyWnd::RepaintContents()
 	ASSERT(m_pUpdateLayeredWindow != NULL);
 	ASSERT(m_pView != NULL);
 
-	CScreenDC dcScreen;
-	m_offscreenDC.Create(&dcScreen, m_rcPos.Size());
-	FrameRect(&m_offscreenDC, m_rcPos - m_rcPos.TopLeft(),
-			::GetSysColor(COLOR_WINDOWFRAME));
+	CSize szClient = m_rcPos.Size();
+	if (m_memDC.m_hDC == NULL)
+	{
+		CScreenDC dcScreen;
+		m_memDC.CreateCompatibleDC(&dcScreen);
+	}
 
-	m_offscreenDC.SetViewportOrg(1, 1);
-	int nSaveDC = m_offscreenDC.SaveDC();
-	m_offscreenDC.IntersectClipRect(0, 0, m_rcPos.Width() - 2, m_rcPos.Height() - 2);
-	m_pView->SendMessage(WM_PRINT, (WPARAM) m_offscreenDC.m_hDC, PRF_CLIENT);
-	m_offscreenDC.RestoreDC(nSaveDC);
-	m_offscreenDC.SetViewportOrg(0, 0);
+	if (m_szMemBitmap != szClient)
+	{
+		CScreenDC dcScreen;
+		m_memBitmap.DeleteObject();
+		m_memBitmap.CreateCompatibleBitmap(&dcScreen, szClient.cx, szClient.cy);
+		m_szMemBitmap = szClient;
+	}
+
+	HGDIOBJ hOldBmp = m_memDC.SelectObject(&m_memBitmap);
+	FrameRect(&m_memDC, m_rcPos - m_rcPos.TopLeft(), ::GetSysColor(COLOR_WINDOWFRAME));
+
+	m_memDC.SetViewportOrg(1, 1);
+	int nSaveDC = m_memDC.SaveDC();
+	m_memDC.IntersectClipRect(0, 0, szClient.cx - 2, szClient.cy - 2);
+	m_pView->SendMessage(WM_PRINT, (WPARAM) m_memDC.m_hDC, PRF_CLIENT);
+	m_memDC.RestoreDC(nSaveDC);
+	m_memDC.SetViewportOrg(0, 0);
 
 	BLENDFUNCTION bf;
 	bf.BlendOp = AC_SRC_OVER;
@@ -127,8 +140,9 @@ void CMagnifyWnd::RepaintContents()
 	bf.AlphaFormat = 0;
 
 	m_pUpdateLayeredWindow(m_hWnd, NULL, &m_rcPos.TopLeft(), &m_rcPos.Size(),
-			m_offscreenDC.m_hDC, &CPoint(0, 0), 0, &bf, ULW_ALPHA);
-	m_offscreenDC.Release();
+			m_memDC.m_hDC, &CPoint(0, 0), 0, &bf, ULW_ALPHA);
+
+	m_memDC.SelectObject(hOldBmp);
 }
 
 void CMagnifyWnd::PostNcDestroy()
@@ -180,6 +194,13 @@ void CMagnifyWnd::OnDestroy()
 {
 	if (m_pView != NULL)
 		m_pView->SetDocument(NULL);
+
+	if (m_memDC.m_hDC != NULL)
+	{
+		m_memBitmap.DeleteObject();
+		m_memDC.DeleteDC();
+		m_szMemBitmap = CSize(0, 0);
+	}
 
 	CWnd::OnDestroy();
 }

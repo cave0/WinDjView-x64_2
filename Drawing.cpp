@@ -864,12 +864,38 @@ void DrawDottedLine(CDC* pDC, const CPoint& ptStart, const CPoint& ptEnd, COLORR
 
 void DrawDottedRect(CDC* pDC, const CRect& rect, COLORREF color)
 {
-	DrawDottedLine(pDC, rect.TopLeft(), CPoint(rect.right, rect.top), color);
-	DrawDottedLine(pDC, CPoint(rect.right - 1, rect.top + (rect.Width() + 1) % 2),
-		CPoint(rect.right - 1, rect.bottom), color);
-	DrawDottedLine(pDC, rect.TopLeft(), CPoint(rect.left, rect.bottom), color);
-	DrawDottedLine(pDC, CPoint(rect.left + (rect.Height() + 1) % 2, rect.bottom - 1),
-		CPoint(rect.right, rect.bottom - 1), color);
+	LOGBRUSH lb;
+	lb.lbStyle = BS_SOLID;
+	lb.lbColor = color;
+	lb.lbHatch = 0;
+
+	DWORD dwStyle[2] = { 1, 1 };
+	HPEN hPen = ::ExtCreatePen(PS_COSMETIC | PS_USERSTYLE, 1, &lb, 2, dwStyle);
+	if (hPen != NULL)
+	{
+		HGDIOBJ hOldPen = ::SelectObject(pDC->m_hDC, hPen);
+		int nOldBkMode = ::SetBkMode(pDC->m_hDC, TRANSPARENT);
+
+		// Top
+		::MoveToEx(pDC->m_hDC, rect.left, rect.top, NULL);
+		::LineTo(pDC->m_hDC, rect.right, rect.top);
+
+		// Right
+		::MoveToEx(pDC->m_hDC, rect.right - 1, rect.top + (rect.Width() + 1) % 2, NULL);
+		::LineTo(pDC->m_hDC, rect.right - 1, rect.bottom);
+
+		// Left
+		::MoveToEx(pDC->m_hDC, rect.left, rect.top, NULL);
+		::LineTo(pDC->m_hDC, rect.left, rect.bottom);
+
+		// Bottom
+		::MoveToEx(pDC->m_hDC, rect.left + (rect.Height() + 1) % 2, rect.bottom - 1, NULL);
+		::LineTo(pDC->m_hDC, rect.right, rect.bottom - 1);
+
+		::SetBkMode(pDC->m_hDC, nOldBkMode);
+		::SelectObject(pDC->m_hDC, hOldPen);
+		::DeleteObject(hPen);
+	}
 }
 
 void HighlightRect(CDC* pDC, const CRect& rect, COLORREF color, double fTransparency)

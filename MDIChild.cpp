@@ -403,7 +403,7 @@ void CMDIChild::OnMouseMove(UINT nFlags, CPoint point)
 	{
 		m_nSplitterPos = m_nOrigSplitterPos + point.x - m_ptDragStart.x;
 		RecalcLayout();
-		::RedrawWindow(m_hWnd, NULL, NULL, RDW_UPDATENOW | RDW_ALLCHILDREN);
+		Invalidate(FALSE);
 	}
 
 	CWnd::OnMouseMove(nFlags, point);

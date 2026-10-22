@@ -1555,7 +1555,7 @@ void CMainFrame::OnUpdate(const Observable* source, const Message* message)
 		if (pView == GetActiveView())
 			UpdatePageCombo(pView);
 
-		SendMessageToDescendants(WM_IDLEUPDATECMDUI, true, 0, true, true);
+		PostMessage(WM_KICKIDLE);
 	}
 	else if (message->code == ZOOM_CHANGED)
 	{
@@ -1563,7 +1563,7 @@ void CMainFrame::OnUpdate(const Observable* source, const Message* message)
 		if (pView == GetActiveView())
 			UpdateZoomCombo(pView);
 
-		SendMessageToDescendants(WM_IDLEUPDATECMDUI, true, 0, true, true);
+		PostMessage(WM_KICKIDLE);
 	}
 	else if (message->code == VIEW_ACTIVATED || message->code == VIEW_INITIALIZED)
 	{
