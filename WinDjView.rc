@@ -106,7 +106,7 @@ IDR_DjVuTYPE            ICON                    "res\\DjVuDoc.ico"
 // Manifest
 //
 
-1                       24                      "res\\WinDjView.manifest"
+1                       24                      "res\\WinDjView_x64.manifest"
 
 /////////////////////////////////////////////////////////////////////////////
 //
