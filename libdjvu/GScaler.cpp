@@ -65,6 +65,7 @@
 // Almost equal to my initial code.
 
 #include "GScaler.h"
+#include <emmintrin.h>
 
 
 #ifdef HAVE_NAMESPACES
@@ -457,7 +458,45 @@ GBitmapScaler::scale( const GRect &provided_input, const GBitmap &input,
         // Compute line
         unsigned char *dest = lbuffer+1;
         const int frac = fy & FRACMASK;
-        for(unsigned char const * const edest=(unsigned char const *)dest+bufw;
+
+        int rem_w = bufw;
+#if defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86_FP)
+        const __m128i v_frac = _mm_set1_epi16((short)frac);
+        const __m128i v_round = _mm_set1_epi16((short)FRACSIZE2);
+        const __m128i v_zero = _mm_setzero_si128();
+
+        while (rem_w >= 16)
+        {
+          __m128i l_raw = _mm_loadu_si128((const __m128i*)lower);
+          __m128i u_raw = _mm_loadu_si128((const __m128i*)upper);
+
+          __m128i l_lo = _mm_unpacklo_epi8(l_raw, v_zero);
+          __m128i u_lo = _mm_unpacklo_epi8(u_raw, v_zero);
+          __m128i l_hi = _mm_unpackhi_epi8(l_raw, v_zero);
+          __m128i u_hi = _mm_unpackhi_epi8(u_raw, v_zero);
+
+          __m128i diff_lo = _mm_sub_epi16(u_lo, l_lo);
+          __m128i diff_hi = _mm_sub_epi16(u_hi, l_hi);
+
+          __m128i prod_lo = _mm_add_epi16(_mm_mullo_epi16(diff_lo, v_frac), v_round);
+          __m128i prod_hi = _mm_add_epi16(_mm_mullo_epi16(diff_hi, v_frac), v_round);
+
+          __m128i shift_lo = _mm_srai_epi16(prod_lo, FRACBITS);
+          __m128i shift_hi = _mm_srai_epi16(prod_hi, FRACBITS);
+
+          __m128i res_lo = _mm_add_epi16(l_lo, shift_lo);
+          __m128i res_hi = _mm_add_epi16(l_hi, shift_hi);
+
+          __m128i res = _mm_packus_epi16(res_lo, res_hi);
+          _mm_storeu_si128((__m128i*)dest, res);
+
+          lower += 16;
+          upper += 16;
+          dest += 16;
+          rem_w -= 16;
+        }
+#endif
+        for(unsigned char const * const edest=(unsigned char const *)dest+rem_w;
           dest<edest;upper++,lower++,dest++)
         {
           const int l = *lower;
