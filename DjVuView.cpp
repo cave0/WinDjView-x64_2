@@ -6931,27 +6931,32 @@ bool CDjVuView::FindBookmarkTitle(GUTF8String strBookmarkTitle, int nPage, Bookm
 		{
 			for (int nTry = 0; nTry < 4; nTry++)
 			{
+				if (nTry == 1)
+				{
+					strBookmarkTitle = TrimNonChar(strBookmarkTitle);
+				}
+				else if (nTry == 2)
+				{
+					strBookmarkTitle = DelNonCharOrDigit(strBookmarkTitle);
+				}
+				else if (nTry == 3)
+				{
+					strBookmarkTitle = TrimEnding(strBookmarkTitle);
+					if (strBookmarkTitle.length() == 0)
+						return false;
+				}
+
+				int nTitleLen = strBookmarkTitle.length();
+				if (nTitleLen == 0)
+					continue;
+
 				int nTextPos = nSelPos - 1;
 				for (int nCircle = 0; nCircle < 2; nCircle++)
 				{
 					if (nCircle > 0)
 						nTextPos = - 1;
-					if (nTry == 1)
-					{
-						strBookmarkTitle = TrimNonChar(strBookmarkTitle);
-					}
-					else if (nTry == 2)
-					{
-						strBookmarkTitle = DelNonCharOrDigit(strBookmarkTitle);
-					}
-					else if (nTry == 3)
-					{
-						strBookmarkTitle = TrimEnding(strBookmarkTitle);
-						if (strBookmarkTitle.length() == 0)
-							return false;
-					}
+
 					int nTitlePos = 0;
-					int nTitleLen = strBookmarkTitle.length();
 					bool bFirstMatch = true;
 					int nOffset = 0;
 
@@ -9197,6 +9202,10 @@ bool CDjVuView::AddHistoryPoint(const HistoryPoint& pt, bool bForce)
 	}
 
 	m_history.push_back(pt);
+
+	// Bound history to 256 entries to prevent unbounded memory growth
+	if (m_history.size() > 256)
+		m_history.pop_front();
 
 	m_historyPoint = m_history.end();
 	--m_historyPoint;

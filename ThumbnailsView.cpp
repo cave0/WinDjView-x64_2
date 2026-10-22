@@ -113,7 +113,21 @@ void CThumbnailsView::OnDraw(CDC* pDC)
 	pDC->GetClipBox(rcClip);
 	rcClip.OffsetRect(GetScrollPosition());
 
-	for (int nPage = 0; nPage < m_nPageCount; ++nPage)
+	int nThumbnailHeight = 2*nVertMargin + 2*nFrameWidth + m_szThumbnail.cy
+			+ nNumberSkip + nNumberHeight;
+
+	int nStartPage = 0;
+	int nEndPage = m_nPageCount;
+
+	if (nThumbnailHeight > 0 && m_nPagesInRow > 0)
+	{
+		int nStartRow = max(0, (rcClip.top - nPadding) / nThumbnailHeight);
+		int nEndRow = max(0, (rcClip.bottom - nPadding) / nThumbnailHeight);
+		nStartPage = max(0, nStartRow * m_nPagesInRow);
+		nEndPage = min(m_nPageCount, (nEndRow + 1) * m_nPagesInRow);
+	}
+
+	for (int nPage = nStartPage; nPage < nEndPage; ++nPage)
 	{
 		Page& page = m_pages[nPage];
 
@@ -974,7 +988,20 @@ int CThumbnailsView::GetPageFromPoint(CPoint point)
 {
 	point += GetScrollPosition();
 
-	for (int nPage = 0; nPage < m_nPageCount; ++nPage)
+	int nThumbnailHeight = 2*nVertMargin + 2*nFrameWidth + m_szThumbnail.cy
+			+ nNumberSkip + nNumberHeight;
+
+	int nStartPage = 0;
+	int nEndPage = m_nPageCount;
+
+	if (nThumbnailHeight > 0 && m_nPagesInRow > 0)
+	{
+		int nRow = max(0, (point.y - nPadding) / nThumbnailHeight);
+		nStartPage = max(0, nRow * m_nPagesInRow);
+		nEndPage = min(m_nPageCount, (nRow + 1) * m_nPagesInRow);
+	}
+
+	for (int nPage = nStartPage; nPage < nEndPage; ++nPage)
 	{
 		if (m_pages[nPage].rcBitmap.PtInRect(point)
 			|| m_pages[nPage].rcNumber.PtInRect(point))
