@@ -271,7 +271,6 @@ BOOL CDjViewApp::InitInstance()
 		return false;
 
 	m_hHook = ::SetWindowsHookEx(WH_KEYBOARD, KeyboardProc, NULL, ::GetCurrentThreadId());
-	m_nTimerID = ::SetTimer(NULL, 1, 100, TimerProc);
 
 	if (m_appSettings.bProgramSettingsIntoRegistry && m_appSettings.bWarnNotDefaultViewer && RegisterShellFileTypes(true))
 	{
@@ -1230,7 +1229,6 @@ int CDjViewApp::ExitInstance()
 		delete m_pFindDlg;
 	}
 
-	::KillTimer(NULL, m_nTimerID);
 	::UnhookWindowsHookEx(m_hHook);
 
 	ThreadTerminated();
