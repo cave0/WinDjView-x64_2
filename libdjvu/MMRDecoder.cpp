@@ -426,7 +426,16 @@ MMRDecoder::VLSource::nextstripe(void)
 void
 MMRDecoder::VLSource::preload(void)
 {
-  // Fast path: consume bytes already in cache without refill checks
+  // Fast path: consume 16-bit chunks when possible
+  while (lowbits >= 16 && bufpos + 1 < bufmax)
+  {
+    lowbits -= 16;
+    unsigned int w = ((unsigned int)buffer[bufpos] << 8) | buffer[bufpos + 1];
+    bufpos += 2;
+    codeword |= (w << lowbits);
+  }
+
+  // Fast path: consume remaining single bytes already in cache
   while (lowbits >= 8 && bufpos < bufmax)
   {
     lowbits -= 8;
@@ -599,62 +608,98 @@ MMRDecoder::scanruns(const unsigned short **endptr)
   int a0,rle,b1;
   for(a0=0,rle=0,b1=*pr++;a0 < width;)
     {
-      // Process MMR codes
-      const int c=mrtable->decode(src);
-      switch ( c )
+      // Process MMR codes with fast-path prefix tests
+      unsigned int cw = src->peek();
+      if ((int)cw < 0) // Bit 31 == 1: Mode V0 (70-80% frequency)
       {
-          /* Pass Mode */
-        case P: 
-          { 
-            b1 += *pr++;
-            rle += b1 - a0;
-            a0 = b1;
-            b1 += *pr++;
-            break;
-          }
-          /* Horizontal Mode */
-        case H: 
-          { 
-            // First run
-            VLTable &table1 = *(a0color ? btable : wtable);
-            int inc;
-            do { inc=table1.decode(src); a0+=inc; rle+=inc; } while (inc>=64);
-            *xr = rle; xr++; rle = 0;
-            // Second run
-            VLTable &table2 = *(!a0color ? btable : wtable);
-            do { inc=table2.decode(src); a0+=inc; rle+=inc; } while (inc>=64);
-            *xr = rle; xr++; rle = 0;
-            break;
-          }
-        /* Vertical Modes */
-        case V0:
-        case VR1:
-        case VR2:
-        case VR3:
+        src->shift(1);
+        int inc = b1;
+        b1 += *pr++;
+        *xr++ = inc + rle - a0;
+        a0 = inc;
+        rle = 0;
+        a0color = !a0color;
+      }
+      else if (cw & 0x40000000) // Bit 31 == 0, Bit 30 == 1
+      {
+        if (cw & 0x20000000) // '011' -> VR1
         {
-          int inc = b1 + (c - V0);
+          src->shift(3);
+          int inc = b1 + 1;
           b1 += *pr++;
           *xr++ = inc + rle - a0;
           a0 = inc;
           rle = 0;
           a0color = !a0color;
-          break;
         }
-        case VL1:
-        case VL2:
-        case VL3:
+        else // '010' -> VL1
         {
-          int inc = b1 - (c - VL1 + 1);
+          src->shift(3);
+          int inc = b1 - 1;
           b1 -= *--pr;
           *xr++ = inc + rle - a0;
           a0 = inc;
           rle = 0;
           a0color = !a0color;
-          break;
         }
-          /* Uncommon modes */
-        default: 
+      }
+      else
+      {
+        const int c = mrtable->decode(src);
+        switch ( c )
+        {
+            /* Pass Mode */
+          case P: 
+            { 
+              b1 += *pr++;
+              rle += b1 - a0;
+              a0 = b1;
+              b1 += *pr++;
+              break;
+            }
+            /* Horizontal Mode */
+          case H: 
+            { 
+              // First run
+              VLTable &table1 = *(a0color ? btable : wtable);
+              int inc;
+              do { inc=table1.decode(src); a0+=inc; rle+=inc; } while (inc>=64);
+              *xr = rle; xr++; rle = 0;
+              // Second run
+              VLTable &table2 = *(!a0color ? btable : wtable);
+              do { inc=table2.decode(src); a0+=inc; rle+=inc; } while (inc>=64);
+              *xr = rle; xr++; rle = 0;
+              break;
+            }
+          /* Vertical Modes */
+          case V0:
+          case VR1:
+          case VR2:
+          case VR3:
           {
+            int inc = b1 + (c - V0);
+            b1 += *pr++;
+            *xr++ = inc + rle - a0;
+            a0 = inc;
+            rle = 0;
+            a0color = !a0color;
+            break;
+          }
+          case VL1:
+          case VL2:
+          case VL3:
+          {
+            int inc = b1 - (c - VL1 + 1);
+            b1 -= *--pr;
+            *xr++ = inc + rle - a0;
+            a0 = inc;
+            rle = 0;
+            a0color = !a0color;
+            break;
+          }
+            /* Uncommon modes */
+          default: 
+            {
             src->preload();
             unsigned int m = src->peek();
             // -- Could be EOFB ``000000000001000000000001''
@@ -732,10 +777,11 @@ MMRDecoder::scanruns(const unsigned short **endptr)
             G_THROW(invalid_mmr_data);
           }
       }
-      // Next reference run
-      for(;b1<=a0 && b1<width;pr+=2)
+      // Next reference run: fused 32-bit load for pair of 16-bit run lengths
+      for(; b1<=a0 && b1<width; pr+=2)
       {
-        b1 += pr[0]+pr[1];
+        uint32_t pair = *(const uint32_t*)pr;
+        b1 += (pair & 0xffff) + (pair >> 16);
       }
     }
   // Final P must be followed by V0 (they say!)
