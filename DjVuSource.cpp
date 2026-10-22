@@ -1638,7 +1638,13 @@ void DjVuSource::ReadAnnotations(GP<ByteStream> pInclStream,
 
 		GURL urlInclude = m_pDjVuDoc->id_to_url(strInclude);
 		GP<DataPool> pool = m_pDjVuDoc->request_data(NULL, urlInclude);
+		if (pool == NULL)
+			return;
+
 		GP<ByteStream> stream = pool->get_stream();
+		if (stream == NULL)
+			return;
+
 		GP<IFFByteStream> iff(IFFByteStream::create(stream));
 
 		// Check file format
