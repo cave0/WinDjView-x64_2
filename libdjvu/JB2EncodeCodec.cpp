@@ -302,7 +302,7 @@ JB2Dict::JB2Codec::Encode::code_bitmap_directly(
       while (dy >= 0)
         {
           int context = get_direct_context(up2, up1, up0, 0);
-          for (int dx = 0; dx < dw;)
+          for (int dx = 0; dx < dw; )
             {
               const int n = up0[dx++];
               zp.encoder(n, bitdist[context]);
