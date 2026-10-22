@@ -466,14 +466,19 @@ filter_bv(short *p, int w, int h, int rowsize, int scale)
 static void 
 filter_bh(short *p, int w, int h, int rowsize, int scale)
 {
-  int y = 0;
-  int s = scale;
-  int s3 = s+s+s;
-  rowsize *= scale;
-  while (y<h)
+  const int s = scale;
+  const int s3 = s+s+s;
+  const int step_rowsize = rowsize * scale;
+  const int nrows = ((h - 1) / scale) + 1;
+
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) if (nrows >= 32)
+#endif
+  for (int r = 0; r < nrows; ++r)
     {
-      short *q = p;
-      short *e = p+w;
+      short *row_p = p + r * step_rowsize;
+      short *q = row_p;
+      short *e = row_p + w;
       int a0=0, a1=0, a2=0, a3=0;
       int b0=0, b1=0, b2=0, b3=0;
       if (q<e)
@@ -556,12 +561,10 @@ filter_bh(short *p, int w, int h, int rowsize, int scale)
           b0=b1; 
           b1=b2; 
           b2=b3;
-          if (q-s3 >= p)
+          if (q-s3 >= row_p)
             q[-s3] = q[-s3] + ((b1+b2+1)>>1);
           q += s+s;
         }
-      y += scale;
-      p += rowsize;
     }
 }
 
@@ -1167,13 +1170,22 @@ IW44Image::Codec::decode_prepare(int fbucket, int nbucket, IW44Image::Block &blk
             }
           else
             {
-              for (int i=0; i<16; i++)
+              __m128i v0 = _mm_loadu_si128((const __m128i*)pcoeff);
+              __m128i v1 = _mm_loadu_si128((const __m128i*)(pcoeff + 8));
+              __m128i v_or = _mm_or_si128(v0, v1);
+              if (_mm_testz_si128(v_or, v_or))
                 {
-                  int cstatetmp = UNK;
-                  if (pcoeff[i])
-                    cstatetmp = ACTIVE;
-                  cstate[i] = cstatetmp;
-                  bstatetmp |= cstatetmp;
+                  _mm_storeu_si128((__m128i*)cstate, _mm_set1_epi8(UNK));
+                  bstatetmp = UNK;
+                }
+              else
+                {
+                  for (int i=0; i<16; i++)
+                    {
+                      int cstatetmp = pcoeff[i] ? ACTIVE : UNK;
+                      cstate[i] = (char)cstatetmp;
+                      bstatetmp |= cstatetmp;
+                    }
                 }
             }
           bucketstate[buckno] = bstatetmp;
@@ -2044,9 +2056,12 @@ static inline unsigned char clamp255(int x)
 void 
 IW44Image::Transform::Decode::YCbCr_to_RGB(GPixel *p, int w, int h, int rowsize)
 {
-  for (int i = 0; i < h; i++, p += rowsize)
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) if (h >= 16)
+#endif
+  for (int i = 0; i < h; i++)
     {
-      GPixel *q = p;
+      GPixel *q = p + (size_t)i * rowsize;
       int j = 0;
 
       // Process 4 pixels (12 bytes) per iteration with all inputs loaded upfront
