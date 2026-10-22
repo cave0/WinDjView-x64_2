@@ -2918,18 +2918,8 @@ BOOL CDjViewApp::SaveAllModified()
 
 		// save last opened documents
 
-	// delete old
-	for (int nItem = 0; nItem < 100; nItem++)
-	{
-		CString strKey = s_pszLastOpenedDocumentPrefix + FormatString(_T("%d"), nItem);
-		if (GetProfileString(s_pszLastOpenedDocumentsSection, strKey, _T("")).IsEmpty())
-			break;
-
-		if (0 == WriteProfileString(s_pszLastOpenedDocumentsSection, strKey, NULL))
-		{
-			break;
-		}
-	}
+	// Atomically delete the entire section in 1 I/O operation instead of 100 disk flushes
+	WriteProfileString(s_pszLastOpenedDocumentsSection, NULL, NULL);
 
 	// add current
 	if (m_appSettings.bOpenLastDocuments)

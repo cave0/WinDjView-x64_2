@@ -465,6 +465,16 @@ void CDjVuView::OnDraw(CDC* pDC)
 			}
 
 			// Draw selection
+			Annotation pageAnno;
+			if (page.bIsFindResult)
+			{
+				pageAnno.crFill = 65535;
+				pageAnno.fTransparency = 0.5;
+				pageAnno.nBorderType = 1;
+				pageAnno.crBorder = 255;
+				pageAnno.rects.resize(1);
+			}
+
 			for (GPosition pos = page.selection; pos; ++pos)
 			{
 				if (!page.bIsFindResult)
@@ -476,13 +486,8 @@ void CDjVuView::OnDraw(CDC* pDC)
 				else
 				{
 					GRect rect = page.selection[pos]->rect;
-					rect.inflate(5,5);
-					Annotation pageAnno = Annotation();
-					pageAnno.crFill = 65535;
-					pageAnno.fTransparency = 0.5;
-					pageAnno.nBorderType = 1;
-					pageAnno.crBorder = 255;//(RGB(255, 0, 0))
-					pageAnno.rects.push_back(rect);
+					rect.inflate(5, 5);
+					pageAnno.rects[0] = rect;
 					pageAnno.rectBounds = rect;
 					DrawAnnotation(&m_offscreenDC, pageAnno, nPage, false);
 				}
@@ -526,6 +531,14 @@ void CDjVuView::DrawAnnotation(CDC* pDC, const Annotation& anno, int nPage, bool
 	Page& page = m_pages[nPage];
 	CPoint ptScroll = GetScrollPosition();
 	CRect rcBounds = TranslatePageRect(nPage, anno.rectBounds) - ptScroll;
+
+	// Early frustum / clipping rejection: skip off-screen annotations entirely
+	CRect rcClip;
+	pDC->GetClipBox(rcClip);
+	CRect rcPadded = rcBounds;
+	rcPadded.InflateRect(anno.nLineWidth + 4, anno.nLineWidth + 4);
+	if (!rcClip.IntersectRect(rcClip, rcPadded))
+		return;
 
 	bool bShowAll = m_bShiftDown && (GetFocus() == this || m_nType == Magnify);
 	bool bShowBounds = false, bAdjustBorder = false;

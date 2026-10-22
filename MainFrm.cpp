@@ -1257,10 +1257,18 @@ void CMainFrame::OnUpdateMousePos(CCmdUI* pCmdUI)
 		pCmdUI->SetText(strNewMessage);
 		status.SetText(strNewMessage, 3, 0);
 
+		UINT nID, nStyle;
+		int nCurWidth;
+		m_wndStatusBar.GetPaneInfo(3, nID, nStyle, nCurWidth);
+
 		CWindowDC dc(&status);
 		CFont* pOldFont = dc.SelectObject(status.GetFont());
-		m_wndStatusBar.SetPaneInfo(3, ID_MOUSE_POS, 0, dc.GetTextExtent(strNewMessage).cx + 2);
+		int nRequiredWidth = dc.GetTextExtent(strNewMessage).cx + 6;
 		dc.SelectObject(pOldFont);
+
+		// Only recompute status bar partitions if the text overflows current allocated width
+		if (nRequiredWidth > nCurWidth)
+			m_wndStatusBar.SetPaneInfo(3, ID_MOUSE_POS, 0, nRequiredWidth);
 	}
 }
 
