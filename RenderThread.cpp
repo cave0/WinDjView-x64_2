@@ -350,16 +350,18 @@ CDIB* CRenderThread::Render(GP<DjVuImage> pImage, const CSize& size,
 
 	try
 	{
+		const int nSubsample = (nDisplayMode == CDjVuView::BlackAndWhite) ? 1 : 4;
+
 		switch (nDisplayMode)
 		{
 		case CDjVuView::BlackAndWhite:
-			pGBitmap = pImage->get_bitmap(rect, rect, 4);
+			pGBitmap = pImage->get_bitmap(rect, rect, nSubsample);
 			break;
 
 		case CDjVuView::Foreground:
 			pGPixmap = pImage->get_fg_pixmap(rect, rect);
 			if (pGPixmap == NULL)
-				pGBitmap = pImage->get_bitmap(rect, rect, 4);
+				pGBitmap = pImage->get_bitmap(rect, rect, nSubsample);
 			break;
 
 		case CDjVuView::Background:
@@ -370,7 +372,7 @@ CDIB* CRenderThread::Render(GP<DjVuImage> pImage, const CSize& size,
 		default:
 			pGPixmap = pImage->get_pixmap(rect, rect);
 			if (pGPixmap == NULL)
-				pGBitmap = pImage->get_bitmap(rect, rect, 4);
+				pGBitmap = pImage->get_bitmap(rect, rect, nSubsample);
 		}
 	}
 	catch (GException&)
