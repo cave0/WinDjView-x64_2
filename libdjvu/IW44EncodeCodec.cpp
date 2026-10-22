@@ -615,14 +615,19 @@ filter_fv(short *p, int w, int h, int rowsize, int scale)
 static void 
 filter_fh(short *p, int w, int h, int rowsize, int scale)
 {
-  int y = 0;
-  int s = scale;
-  int s3 = s+s+s;
-  rowsize *= scale;
-  while (y<h)
+  const int s = scale;
+  const int s3 = s+s+s;
+  const int step_rowsize = rowsize * scale;
+  const int nrows = ((h - 1) / scale) + 1;
+
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) if (nrows >= 32)
+#endif
+  for (int r = 0; r < nrows; ++r)
     {
-      short *q = p+s;
-      short *e = p+w;
+      short *row_p = p + r * step_rowsize;
+      short *q = row_p + s;
+      short *e = row_p + w;
       int a0=0, a1=0, a2=0, a3=0;
       int b0=0, b1=0, b2=0, b3=0;
       if (q < e)
@@ -672,12 +677,10 @@ filter_fh(short *p, int w, int h, int rowsize, int scale)
           b1=b2; 
           b2=b3;
           b3=0;
-          if (q-s3 >= p)
+          if (q-s3 >= row_p)
             q[-s3] = q[-s3] + ((((b1+b2)<<3)+(b1+b2)-b0-b3+16) >> 5);
           q += s+s;
         }
-      y += scale;
-      p += rowsize;
     }
 }
 
@@ -1357,7 +1360,10 @@ IW44Image::Codec::Encode::estimate_decibel(float frac)
   // Initialize mse array
   float *xmse;
   GPBuffer<float> gxmse(xmse,map.nb);
-  // Compute mse in each block
+  // Compute mse in each block in parallel across CPU threads
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
   for (int blockno=0; blockno<map.nb; blockno++)
     {
       float mse = 0;
@@ -1379,7 +1385,7 @@ IW44Image::Codec::Encode::estimate_decibel(float frac)
                     {
                       if (bandno == 0)
                         {
-                          for (i=0; i<16; i++)
+                          for (int i=0; i<16; i++)
                             {
                               float delta = (float)(pcoeff[i]<0 ? -pcoeff[i] : pcoeff[i]) - epcoeff[i];
                               mse += norm_lo[i] * delta * delta;
@@ -1387,7 +1393,7 @@ IW44Image::Codec::Encode::estimate_decibel(float frac)
                         }
                       else
                         {
-                          for (i=0; i<16; i++)
+                          for (int i=0; i<16; i++)
                             {
                               float delta = (float)(pcoeff[i]<0 ? -pcoeff[i] : pcoeff[i]) - epcoeff[i];
                               mse += norm * delta * delta;
@@ -1398,7 +1404,7 @@ IW44Image::Codec::Encode::estimate_decibel(float frac)
                     {
                       if (bandno == 0)
                         {
-                          for (i=0; i<16; i++)
+                          for (int i=0; i<16; i++)
                             {
                               float delta = (float)(pcoeff[i]);
                               mse += norm_lo[i] * delta * delta;
@@ -1406,7 +1412,7 @@ IW44Image::Codec::Encode::estimate_decibel(float frac)
                         }
                       else
                         {
-                          for (i=0; i<16; i++)
+                          for (int i=0; i<16; i++)
                             {
                               float delta = (float)(pcoeff[i]);
                               mse += norm * delta * delta;
