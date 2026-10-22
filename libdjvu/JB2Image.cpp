@@ -832,12 +832,35 @@ JB2Dict::JB2Codec::Decode::code_bitmap_directly(
   unsigned char *up2, unsigned char *up1, unsigned char *up0 )
 {
       ZPCodec &zp=*gzp;
+      const unsigned int *zp_p = zp.get_p();
       // iterate on rows (decoding)      
       while (dy >= 0)
         {
           int context=get_direct_context(up2, up1, up0, 0);
           for(int dx=0;dx < dw;)
             {
+              // Fast-forward skip over background zeros via Multi-Bit Interval Skip
+              if (context == 0 && (bitdist[0] & 1) == 0)
+                {
+                  const unsigned int p0 = zp_p[bitdist[0]];
+                  if (p0 > 0)
+                    {
+                      unsigned int max_k = (zp.get_fence() - zp.get_a()) / p0;
+                      while (max_k >= 8 && (dx + 8) <= dw)
+                        {
+                          unsigned long long v1 = *(const unsigned long long*)(up1 + dx + 2);
+                          unsigned long long v2 = *(const unsigned long long*)(up2 + dx + 1);
+                          if ((v1 | v2) != 0ULL)
+                            break;
+                          *(unsigned long long*)(up0 + dx) = 0ULL;
+                          zp.add_a(8 * p0);
+                          dx += 8;
+                          max_k -= 8;
+                        }
+                      if (dx >= dw)
+                        break;
+                    }
+                }
               int n = zp.decoder(bitdist[context]);
               up0[dx++] = n;
               context=shift_direct_context(context, n, up2, up1, up0, dx);
