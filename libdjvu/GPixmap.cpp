@@ -1572,25 +1572,35 @@ GPixmap::blend(const GBitmap *bm, int xpos, int ypos, const GPixmap *color)
   const unsigned char *src = (*bm)[0] - mini(0,ypos)*bm->rowsize()-mini(0,xpos);
   const GPixel *src2 = (*color)[0] + maxi(0, ypos)*color->rowsize()+maxi(0, xpos);
   GPixel *dst = (*this)[0] + maxi(0, ypos)*rowsize()+maxi(0, xpos);
-  // Loop over rows
-  for (int y=0; y<xrows; y++)
+  const int bm_stride = bm->rowsize();
+  const int color_stride = color->rowsize();
+  const int dst_stride = rowsize();
+
+  // Loop over rows in parallel across CPU cores
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) if (xrows >= 32)
+#endif
+  for (int y = 0; y < xrows; y++)
     {
-      // Loop over columns
-      for (int x=0; x<xcolumns; x++)
+      const unsigned char *src_row = src + (size_t)y * bm_stride;
+      const GPixel *src2_row = src2 + (size_t)y * color_stride;
+      GPixel *dst_row = dst + (size_t)y * dst_stride;
+
+      for (int x = 0; x < xcolumns; x++)
         {
-          unsigned char srcpix = src[x];
-          if (srcpix)
+          unsigned char srcpix = src_row[x];
+          if (srcpix >= maxgray)
+            {
+              dst_row[x] = src2_row[x];
+            }
+          else if (srcpix)
             {
               const unsigned int level = multiplier[srcpix];
-              dst[x].b += (((int)src2[x].b - (int)dst[x].b) * (int)level) >> 16;
-              dst[x].g += (((int)src2[x].g - (int)dst[x].g) * (int)level) >> 16;
-              dst[x].r += (((int)src2[x].r - (int)dst[x].r) * (int)level) >> 16;
+              dst_row[x].b += (((int)src2_row[x].b - (int)dst_row[x].b) * (int)level) >> 16;
+              dst_row[x].g += (((int)src2_row[x].g - (int)dst_row[x].g) * (int)level) >> 16;
+              dst_row[x].r += (((int)src2_row[x].r - (int)dst_row[x].r) * (int)level) >> 16;
             }
         }
-      // Next line
-      dst += rowsize();
-      src += bm->rowsize();
-      src2 += color->rowsize();
     }
 }
 
@@ -1634,22 +1644,29 @@ GPixmap::stencil(const GBitmap *bm,
   unsigned char gtable[256][3];
   color_correction_table_cache(corr, white, gtable);
   // Compute starting point in blown up foreground pixmap
-  int fgy, fgy1, fgxz, fgx1z;
-  euclidian_ratio(rect.ymin, pms, fgy, fgy1);
+  int fgxz, fgx1z;
   euclidian_ratio(rect.xmin, pms, fgxz, fgx1z);
-  const GPixel *fg = (*pm)[fgy];
-  const unsigned char *src = (*bm)[0];
-  GPixel *dst = (*this)[0];
-  // Loop over rows
-  for (int y=0; y<xrows; y++)
+  const int bm_stride = bm->rowsize();
+  const int dst_stride = rowsize();
+  const unsigned char *base_src = (*bm)[0];
+  GPixel *base_dst = (*this)[0];
+
+  // Loop over rows in parallel across CPU cores
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) if (xrows >= 32)
+#endif
+  for (int y = 0; y < xrows; y++)
   {
-    // Loop over columns
+    const int cur_fgy = (rect.ymin + y) / pms;
+    const GPixel *fg = (*pm)[cur_fgy];
+    const unsigned char *src = base_src + (size_t)y * bm_stride;
+    GPixel *dst = base_dst + (size_t)y * dst_stride;
+
     int fgx = fgxz;
     int fgx1 = fgx1z;
-    for (int x=0; x<xcolumns; x++)
+    for (int x = 0; x < xcolumns; x++)
     {
       unsigned char srcpix = src[x];
-      // Perform pixel operation
       if (srcpix > 0)
       {
         if (srcpix >= maxgray)
@@ -1661,26 +1678,17 @@ GPixmap::stencil(const GBitmap *bm,
         else
         {
           unsigned int level = multiplier[srcpix];
-          dst[x].b -= (((int)dst[x].b-(int)gtable[fg[fgx].b][0])*level) >> 16;
-          dst[x].g -= (((int)dst[x].g-(int)gtable[fg[fgx].g][1])*level) >> 16;
-          dst[x].r -= (((int)dst[x].r-(int)gtable[fg[fgx].r][2])*level) >> 16;
+          dst[x].b -= (((int)dst[x].b - (int)gtable[fg[fgx].b][0]) * (int)level) >> 16;
+          dst[x].g -= (((int)dst[x].g - (int)gtable[fg[fgx].g][1]) * (int)level) >> 16;
+          dst[x].r -= (((int)dst[x].r - (int)gtable[fg[fgx].r][2]) * (int)level) >> 16;
         }
       }
-      // Next column
       if (++fgx1 >= pms)
       {
         fgx1 = 0;
         fgx += 1;
       }
     }
-    // Next line
-    dst += rowsize();
-    src += bm->rowsize();
-    if (++fgy1 >= pms)
-    {
-      fgy1 = 0;
-      fg += pm->rowsize();
-    } 
   }
 }
 

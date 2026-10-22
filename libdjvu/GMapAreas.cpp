@@ -858,9 +858,15 @@ GMapOval::gma_transform(const GRect & grect)
 bool
 GMapOval::gma_is_point_inside(const int x, const int y) const
 {
-   return
-      sqrt((double)((x-xf1)*(x-xf1)+(y-yf1)*(y-yf1))) +
-      sqrt((double)((x-xf2)*(x-xf2)+(y-yf2)*(y-yf2))) <= 2*rmax;
+   if (a <= 0 || b <= 0)
+     return false;
+   int xc = (xmax + xmin) / 2;
+   int yc = (ymax + ymin) / 2;
+   long long dx = (long long)x - xc;
+   long long dy = (long long)y - yc;
+   long long la = a;
+   long long lb = b;
+   return (lb * lb * dx * dx) + (la * la * dy * dy) <= (la * la * lb * lb);
 }
 
 char const * const

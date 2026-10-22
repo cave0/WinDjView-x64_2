@@ -727,21 +727,43 @@ GBitmap::blit(const GBitmap *bm, int xh, int yh, int subsample)
           int nc = sc + z;
 
           if (dr>=0 && dr<nrows)
-            while (z>0 && dc<ncolumns)
-              {
-                int zd = subsample - dc1;
-                if (zd > z) 
-                  zd = z;
-                if (p && dc>=0) 
-                  drow[dc] += zd;
-                z -= zd;
-                dc1 += zd;
-                if (dc1 >= subsample)
-                  {
-                    dc1 = 0;
-                    dc += 1;
-                  }
-              }
+            {
+              if (!p)
+                {
+                  // Fast O(1) advance for white run
+                  int rem = subsample - dc1;
+                  if (z < rem)
+                    {
+                      dc1 += z;
+                    }
+                  else
+                    {
+                      int z_after = z - rem;
+                      dc += 1 + (z_after / subsample);
+                      dc1 = z_after % subsample;
+                      if (dc > ncolumns)
+                        dc = ncolumns;
+                    }
+                }
+              else
+                {
+                  while (z>0 && dc<ncolumns)
+                    {
+                      int zd = subsample - dc1;
+                      if (zd > z) 
+                        zd = z;
+                      if (dc>=0) 
+                        drow[dc] += zd;
+                      z -= zd;
+                      dc1 += zd;
+                      if (dc1 >= subsample)
+                        {
+                          dc1 = 0;
+                          dc += 1;
+                        }
+                    }
+                }
+            }
           // next fractional row
           sc = nc;
           p = 1 - p;
@@ -1565,13 +1587,35 @@ GBitmap::append_line(unsigned char *&data,const unsigned char *row,
       if ((p=!p)) 
         {
           if(*row)
-            for(++count,++row;(row<rowend)&&*row;++count,++row)
-            	EMPTY_LOOP;
+            {
+              while (row + 8 <= rowend)
+                {
+                  unsigned long long v = *(const unsigned long long*)row;
+                  // Test if any byte in 64-bit word is zero
+                  if ((v - 0x0101010101010101ULL) & ~v & 0x8080808080808080ULL)
+                    break;
+                  count += 8;
+                  row += 8;
+                }
+              while ((row < rowend) && *row)
+                {
+                  count++;
+                  row++;
+                }
+            }
         } 
       else if(!*row)
         {
-          for(++count,++row;(row<rowend)&&!*row;++count,++row)
-          	EMPTY_LOOP;
+          while (row + 8 <= rowend && *(const unsigned long long*)row == 0ULL)
+            {
+              count += 8;
+              row += 8;
+            }
+          while ((row < rowend) && !*row)
+            {
+              count++;
+              row++;
+            }
         }
       append_run(data,count);
     }
