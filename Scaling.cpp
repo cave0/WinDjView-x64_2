@@ -568,6 +568,19 @@ GP<GBitmap> RescalePnm(GP<GBitmap> pSrc, UINT nWidth, UINT nHeight)
 		grays[i] = (BYTE) (color >> 16);
 		color -= decrement;
 	}
+	
+	// 1:1 fast path: bypass accumulator row math and horizontal scale passes
+	if (newcols == cols && newrows == rows)
+	{
+		for (UINT r = 0; r < rows; ++r)
+		{
+			const BYTE* src = (*pSrc)[r];
+			BYTE* dst = (*pGBitmap)[r];
+			for (UINT c = 0; c < cols; ++c)
+				dst[c] = grays[src[c]];
+		}
+		return pGBitmap;
+	}
 
 	UINT sxscale = FULLSCALE * newcols / cols;
 	UINT syscale = FULLSCALE * newrows / rows;

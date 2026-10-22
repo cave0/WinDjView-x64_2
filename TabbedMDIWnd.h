@@ -70,6 +70,7 @@ protected:
 	bool m_bHoverLeft, m_bHoverRight, m_bHoverClose;
 	int m_nClosePressedTab, m_nMButtonPressedTab;
 	bool m_bTabBarHidden;
+	bool m_bTrackingLeave;
 	CImageList m_imgClose;
 	bool m_bIgnoreMouseLeave;
 

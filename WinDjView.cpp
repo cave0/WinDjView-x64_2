@@ -854,6 +854,9 @@ bool CDjViewApp::LoadDocSettingsFromFiles(const CString& strKey, DocSettings* pS
 		return true;
 	}
 
+	if (pSettings->strLastKnownLocation.IsEmpty())
+		return false;
+
 	CWaitCursor wait;
 
 	// Try to locate by last known filename
@@ -1117,7 +1120,7 @@ BOOL CDjViewApp::WriteProfileDocsSettings(LPCTSTR pszSection, const GUTF8String&
 	CString strPathName, strFileName, strTemp;
 	GetModuleFileName(NULL, strTemp.GetBuffer(_MAX_PATH), _MAX_PATH);
 	strTemp.ReleaseBuffer(strTemp.ReverseFind('\\') + 1);
-	strPathName = _tcsdup(strTemp) + MakeCString(s_pszDocumentsSection) + _T("\\");
+	strPathName = strTemp + MakeCString(s_pszDocumentsSection) + _T("\\");
 	strFileName = strPathName + pszSection;
 
 	if (!PathIsDirectory(strPathName) && !CreateDirectory(strPathName, NULL))

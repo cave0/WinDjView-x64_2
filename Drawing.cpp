@@ -1176,7 +1176,7 @@ void COffscreenDC::Release()
 
 CScreenDC::CScreenDC()
 {
-	CreateCompatibleDC(NULL);
+	CreateDC(_T("DISPLAY"), NULL, NULL, NULL);
 }
 
 

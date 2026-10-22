@@ -47,7 +47,8 @@ IMPLEMENT_DYNCREATE(CTabbedMDIWnd, CWnd)
 CTabbedMDIWnd::CTabbedMDIWnd()
 	: m_nActiveTab(-1), m_nHoverTab(-1), m_nScrollPos(0), m_bShowArrows(false),
 	  m_bHoverLeft(false), m_bHoverRight(false), m_bHoverClose(false),
-	  m_nClosePressedTab(-1), m_nMButtonPressedTab(-1), m_bIgnoreMouseLeave(false)
+	  m_nClosePressedTab(-1), m_nMButtonPressedTab(-1), m_bIgnoreMouseLeave(false),
+	  m_bTrackingLeave(false)
 {
 	UpdateMetrics();
 	m_rcContent.SetRectEmpty();
@@ -698,7 +699,7 @@ void CTabbedMDIWnd::OnMouseMove(UINT nFlags, CPoint point)
 		}
 	}
 
-	if (m_nHoverTab != -1 || m_bHoverLeft || m_bHoverRight)
+	if ((m_nHoverTab != -1 || m_bHoverLeft || m_bHoverRight) && !m_bTrackingLeave)
 	{
 		TRACKMOUSEEVENT tme;
 
@@ -708,12 +709,15 @@ void CTabbedMDIWnd::OnMouseMove(UINT nFlags, CPoint point)
 		tme.hwndTrack = m_hWnd;
 		tme.dwHoverTime = HOVER_DEFAULT;
 
-		TrackMouseEvent(&tme);
+		if (TrackMouseEvent(&tme))
+			m_bTrackingLeave = true;
 	}
 }
 
 void CTabbedMDIWnd::OnMouseLeave()
 {
+	m_bTrackingLeave = false;
+
 	if (m_bIgnoreMouseLeave)
 		return;
 

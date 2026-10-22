@@ -93,6 +93,7 @@ protected:
 	bool m_bCloseActive, m_bClosePressed;
 	bool m_bSettingsActive, m_bSettingsPressed;
 	bool m_bDragging;
+	bool m_bTrackingLeave;
 
 	virtual BOOL PreTranslateMessage(MSG* pMsg);
 

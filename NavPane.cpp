@@ -31,7 +31,8 @@
 IMPLEMENT_DYNCREATE(CNavPaneWnd, CWnd)
 CNavPaneWnd::CNavPaneWnd()
 	: m_nActiveTab(-1), m_hTheme(NULL), m_bCloseActive(false), m_bClosePressed(false),
-	  m_bSettingsActive(false), m_bSettingsPressed(false), m_bDragging(false)
+	  m_bSettingsActive(false), m_bSettingsPressed(false), m_bDragging(false),
+	  m_bTrackingLeave(false)
 {
 	CFont systemFont;
 	CreateSystemDialogFont(systemFont);
@@ -420,7 +421,7 @@ void CNavPaneWnd::OnLButtonUp(UINT nFlags, CPoint point)
 void CNavPaneWnd::OnMouseMove(UINT nFlags, CPoint point)
 {
 	UpdateButtons();
-	if (m_bCloseActive || m_bSettingsActive)
+	if ((m_bCloseActive || m_bSettingsActive) && !m_bTrackingLeave)
 	{
 		TRACKMOUSEEVENT tme;
 
@@ -430,7 +431,8 @@ void CNavPaneWnd::OnMouseMove(UINT nFlags, CPoint point)
 		tme.hwndTrack = m_hWnd;
 		tme.dwHoverTime = HOVER_DEFAULT;
 
-		TrackMouseEvent(&tme);
+		if (TrackMouseEvent(&tme))
+			m_bTrackingLeave = true;
 	}
 
 	CWnd::OnMouseMove(nFlags, point);
@@ -438,6 +440,7 @@ void CNavPaneWnd::OnMouseMove(UINT nFlags, CPoint point)
 
 void CNavPaneWnd::OnMouseLeave()
 {
+	m_bTrackingLeave = false;
 	UpdateButtons();
 }
 
