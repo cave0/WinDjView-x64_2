@@ -1594,8 +1594,7 @@ void CMainFrame::OnUpdate(const Observable* source, const Message* message)
 		{
 			CDjVuView* pView = (CDjVuView*) pWnd->GetContent();
 
-			for (int i = m_cboPage.GetCount() - 1; i >= 0; --i)
-				m_cboPage.DeleteString(i);
+			m_cboPage.ResetContent();
 
 			SetActiveView(pView);
 			OnViewActivated(pView);

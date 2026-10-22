@@ -218,7 +218,7 @@ protected:
 	void RenderPage(int nPage, int nTimeout = -1, bool bUpdateWindow = true);
 
 	bool InvalidatePage(int nPage);
-	void DrawPage(CDC* pDC, int nPage);
+	void DrawPage(CDC* pDC, int nPage, const CRect& rcClipDoc);
 	void DrawAnnotation(CDC* pDC, const Annotation& anno, int nPage, bool bActive);
 	void DrawTransparentText(CDC* pDC, int nPage);
 
@@ -440,6 +440,9 @@ protected:
 
 	CFont m_sampleFont;
 	map<int, HFONT> m_fonts;
+
+	vector<int> m_cacheAdd;
+	vector<int> m_cacheRemove;
 
 	int m_nClickedPage;
 	bool m_bDragging, m_bDraggingRight;

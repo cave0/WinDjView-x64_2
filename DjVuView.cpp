@@ -402,7 +402,7 @@ void CDjVuView::OnDraw(CDC* pDC)
 				continue;
 		}
 
-		DrawPage(&m_offscreenDC, nPage);
+		DrawPage(&m_offscreenDC, nPage, rcClip);
 
 		if (page.pBitmap != NULL && page.pBitmap->m_hObject != NULL)
 		{
@@ -756,7 +756,7 @@ void CDjVuView::DrawAnnotation(CDC* pDC, const Annotation& anno, int nPage, bool
 	}
 }
 
-void CDjVuView::DrawPage(CDC* pDC, int nPage)
+void CDjVuView::DrawPage(CDC* pDC, int nPage, const CRect& rcClipDoc)
 {
 	Page& page = m_pages[nPage];
 
@@ -769,20 +769,16 @@ void CDjVuView::DrawPage(CDC* pDC, int nPage)
 		clrWindow = InvertColor(clrWindow);
 
 	COLORREF clrShadow = ChangeBrightness(clrBtnshadow, 0.75);
-	//COLORREF clrBackground = ChangeBrightness(clrBtnshadow, 1.2);
 	COLORREF clrBackground = RGB(64, 64, 64);
 	
-	if (m_nType == Fullscreen || m_nType == Magnify && GetMainFrame()->IsFullscreenMode())
+	if (m_nType == Fullscreen || (m_nType == Magnify && GetMainFrame()->IsFullscreenMode()))
 		clrBackground = RGB(191, 191, 191);
 	
 	CPoint ptScroll = GetScrollPosition();
 
+	// Reuse the caller-provided document clip box without redundant GetClipBox() syscalls
 	CRect rcClip;
-	pDC->GetClipBox(rcClip);
-	rcClip.OffsetRect(ptScroll);
-	rcClip.IntersectRect(CRect(rcClip), page.rcDisplay);
-
-	if (rcClip.IsRectEmpty())
+	if (!rcClip.IntersectRect(rcClipDoc, page.rcDisplay))
 		return;
 
 	if (page.szBitmap.cx <= 0 || page.szBitmap.cy <= 0)
@@ -1982,21 +1978,25 @@ void CDjVuView::UpdateVisiblePages()
 	m_pRenderThread->PauseJobs();
 	m_pRenderThread->RemoveAllJobs();
 
-	// Collect page numbera that we want to be in cache.
-	vector<int> add, remove;
-	add.reserve(m_nPageCount);
-	remove.reserve(m_nPageCount);
+	// Reuse persistent vectors to avoid heap allocation churn during scrolling
+	m_cacheAdd.clear();
+	m_cacheRemove.clear();
+	if (m_cacheAdd.capacity() < static_cast<size_t>(m_nPageCount))
+	{
+		m_cacheAdd.reserve(m_nPageCount);
+		m_cacheRemove.reserve(m_nPageCount);
+	}
 
 	if (m_nLayout == SinglePage)
-		UpdatePagesCacheSingle(m_bUpdateBitmaps, add, remove);
+		UpdatePagesCacheSingle(m_bUpdateBitmaps, m_cacheAdd, m_cacheRemove);
 	else if (m_nLayout == Facing)
-		UpdatePagesCacheFacing(m_bUpdateBitmaps, add, remove);
+		UpdatePagesCacheFacing(m_bUpdateBitmaps, m_cacheAdd, m_cacheRemove);
 	else if (m_nLayout == Continuous || m_nLayout == ContinuousFacing)
-		UpdatePagesCacheContinuous(m_bUpdateBitmaps, add, remove);
+		UpdatePagesCacheContinuous(m_bUpdateBitmaps, m_cacheAdd, m_cacheRemove);
 
 	// Notify the source so that it will keep the page in cache
 	// for us in case another thread requests it.
-	m_pSource->ChangeObservedPages(this, add, remove);
+	m_pSource->ChangeObservedPages(this, m_cacheAdd, m_cacheRemove);
 
 	m_pRenderThread->ResumeJobs();
 }
@@ -4568,10 +4568,11 @@ LRESULT CDjVuView::OnPageDecoded(WPARAM wParam, LPARAM lParam)
 	Page& page = m_pages[nPage];
 	bool bHadInfo = page.info.bDecoded;
 
-	page.Init(m_pSource, nPage);
-
+	// Avoid re-querying and copying PageInfo if already decoded
 	if (!bHadInfo)
 	{
+		page.Init(m_pSource, nPage);
+
 		if (lParam && (m_nLayout == Continuous || m_nLayout == ContinuousFacing))
 			UpdateLayout();
 		else
