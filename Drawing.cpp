@@ -1189,124 +1189,175 @@ CRect FindContentRect(GP<DjVuImage> pImage)
 		return rcResult;
 
 	CSize szImage(pImage->get_width(), pImage->get_height());
+	if (szImage.cx <= 0 || szImage.cy <= 0)
+		return rcResult;
 
-	rcResult = CRect(CPoint(0, 0), szImage);
-	GRect rect(0, 0, szImage.cx, szImage.cy);
+	// Subsample large images down to ~1024 max dimension for margin detection.
+	// This avoids decoding full 35MB-100MB bitmaps just to find outer white borders.
+	int nSub = max(1, max(szImage.cx, szImage.cy) / 1024);
+	CSize szSub(max(1, szImage.cx / nSub), max(1, szImage.cy / nSub));
+	GRect rectSub(0, 0, szSub.cx, szSub.cy);
 
-	BYTE nWhite = 0xff;
-	int nPixelSize = 3;
+	int yMin = 0, yMax = szSub.cy;
+	int xMin = 0, xMax = szSub.cx;
 
-	CDIB* pBmpPage = NULL;
 	if (pImage->is_legal_photo() || pImage->is_legal_compound())
 	{
-		GP<GPixmap> pm = pImage->get_pixmap(rect, rect);
-		pBmpPage = RenderPixmap(*pm, CDisplaySettings());
-		ASSERT(pBmpPage->GetBitsPerPixel() == 24);
-	}
-	else if (pImage->is_legal_bilevel())
-	{
-		GP<GBitmap> bm = pImage->get_bitmap(rect, rect, 4);
-		pBmpPage = RenderBitmap(*bm, CDisplaySettings());
+		GP<GPixmap> pm = pImage->get_pixmap(rectSub, rectSub);
+		if (pm == NULL)
+			return rcResult;
 
-		nPixelSize = 1;
+		int nRows = pm->rows();
+		int nCols = pm->columns();
 
-		int nColorCount = pBmpPage->GetColorCount();
-		RGBQUAD* pColors = pBmpPage->GetPalette();
-
-		bool bFound = false;
-		for (int i = 0; i < nColorCount; ++i)
+		// In DjVu, y=0 is the bottom row. Find bottom margin (yMin)
+		int y;
+		for (y = 0; y < nRows; ++y)
 		{
-			if (pColors[i].rgbRed == 0xff &&
-				pColors[i].rgbGreen == 0xff &&
-				pColors[i].rgbBlue == 0xff)
+			const GPixel* row = (*pm)[y];
+			int x;
+			for (x = 0; x < nCols; ++x)
 			{
-				nWhite = static_cast<BYTE>(i);
-				bFound = true;
+				if (row[x].r < 250 || row[x].g < 250 || row[x].b < 250)
+					break;
+			}
+			if (x < nCols)
 				break;
+		}
+		yMin = y;
+
+		// Find top margin (yMax)
+		for (y = nRows - 1; y >= yMin; --y)
+		{
+			const GPixel* row = (*pm)[y];
+			int x;
+			for (x = 0; x < nCols; ++x)
+			{
+				if (row[x].r < 250 || row[x].g < 250 || row[x].b < 250)
+					break;
+			}
+			if (x < nCols)
+				break;
+		}
+		yMax = y + 1;
+
+		if (yMax <= yMin)
+			return CRect(0, 0, 0, 0);
+
+		// Find left margin
+		xMin = nCols;
+		for (y = yMin; y < yMax; ++y)
+		{
+			const GPixel* row = (*pm)[y];
+			for (int x = 0; x < xMin; ++x)
+			{
+				if (row[x].r < 250 || row[x].g < 250 || row[x].b < 250)
+				{
+					xMin = x;
+					break;
+				}
 			}
 		}
 
-		if (!bFound)
-			return rcResult; // No white color in the palette
-	}
-
-	if (pBmpPage == NULL || pBmpPage->m_hObject == NULL)
-		return rcResult;
-
-	LPBYTE pBits = pBmpPage->GetBits();
-	int nRowLength = CalculateDIBPitch(szImage.cx, nPixelSize * 8);
-
-	// Top margin
-	for (; rcResult.top < rcResult.bottom; ++rcResult.top)
-	{
-		LPBYTE pPixel = pBits + rcResult.top*nRowLength;
-		LPBYTE pEndPixel = pPixel + nPixelSize*szImage.cx;
-
-		while (pPixel < pEndPixel && *pPixel == nWhite)
-			++pPixel;
-
-		if (pPixel < pEndPixel)
+		// Find right margin
+		xMax = xMin;
+		for (y = yMin; y < yMax; ++y)
 		{
-			int nPixel = static_cast<int>(pPixel - pBits - rcResult.top*nRowLength)/nPixelSize;
-			rcResult.left = nPixel;
-			rcResult.right = nPixel + 1;
-			break;
+			const GPixel* row = (*pm)[y];
+			for (int x = nCols - 1; x >= xMax; --x)
+			{
+				if (row[x].r < 250 || row[x].g < 250 || row[x].b < 250)
+				{
+					xMax = x + 1;
+					break;
+				}
+			}
+		}
+	}
+	else // Bilevel / B&W
+	{
+		GP<GBitmap> bm = pImage->get_bitmap(rectSub, rectSub, 1);
+		if (bm == NULL)
+			return rcResult;
+
+		int nRows = bm->rows();
+		int nCols = bm->columns();
+
+		// In GBitmap, 0 is white/background
+		int y;
+		for (y = 0; y < nRows; ++y)
+		{
+			const unsigned char* row = (*bm)[y];
+			int x;
+			for (x = 0; x < nCols; ++x)
+			{
+				if (row[x] != 0)
+					break;
+			}
+			if (x < nCols)
+				break;
+		}
+		yMin = y;
+
+		for (y = nRows - 1; y >= yMin; --y)
+		{
+			const unsigned char* row = (*bm)[y];
+			int x;
+			for (x = 0; x < nCols; ++x)
+			{
+				if (row[x] != 0)
+					break;
+			}
+			if (x < nCols)
+				break;
+		}
+		yMax = y + 1;
+
+		if (yMax <= yMin)
+			return CRect(0, 0, 0, 0);
+
+		xMin = nCols;
+		for (y = yMin; y < yMax; ++y)
+		{
+			const unsigned char* row = (*bm)[y];
+			for (int x = 0; x < xMin; ++x)
+			{
+				if (row[x] != 0)
+				{
+					xMin = x;
+					break;
+				}
+			}
+		}
+
+		xMax = xMin;
+		for (y = yMin; y < yMax; ++y)
+		{
+			const unsigned char* row = (*bm)[y];
+			for (int x = nCols - 1; x >= xMax; --x)
+			{
+				if (row[x] != 0)
+				{
+					xMax = x + 1;
+					break;
+				}
+			}
 		}
 	}
 
-	// Bottom margin
-	for (; rcResult.bottom > rcResult.top; --rcResult.bottom)
-	{
-		LPBYTE pPixel = pBits + (rcResult.bottom - 1)*nRowLength;
-		LPBYTE pEndPixel = pPixel + nPixelSize*szImage.cx;
+	// Scale back to native resolution and preserve DjVu coordinate convention:
+	// top = yMin (bottom offset), bottom = yMax (top offset)
+	rcResult.top = yMin * nSub;
+	rcResult.bottom = yMax * nSub;
+	rcResult.left = xMin * nSub;
+	rcResult.right = xMax * nSub;
 
-		while (pPixel < pEndPixel && *pPixel == nWhite)
-			++pPixel;
+	// Clamp to native image bounds
+	rcResult.left = max(0, min(szImage.cx, (int)rcResult.left));
+	rcResult.right = max((int)rcResult.left, min(szImage.cx, (int)rcResult.right));
+	rcResult.top = max(0, min(szImage.cy, (int)rcResult.top));
+	rcResult.bottom = max((int)rcResult.top, min(szImage.cy, (int)rcResult.bottom));
 
-		if (pPixel < pEndPixel)
-		{
-			int nPixel = static_cast<int>(pPixel - pBits - (rcResult.bottom - 1)*nRowLength)/nPixelSize;
-			rcResult.left = min(rcResult.left, nPixel);
-			rcResult.right = max(rcResult.right, nPixel + 1);
-			break;
-		}
-	}
-
-	if (rcResult.top >= rcResult.bottom)
-	{
-		delete pBmpPage;
-		return CRect(0, 0, 0, 0);
-	}
-
-	// Left margin
-	int y;
-	for (y = rcResult.top; y < rcResult.bottom; ++y)
-	{
-		LPBYTE pPixel = pBits + y*nRowLength;
-		LPBYTE pEndPixel = pPixel + nPixelSize*rcResult.left;
-
-		while (pPixel < pEndPixel && *pPixel == nWhite)
-			++pPixel;
-
-		int nPixel = static_cast<int>(pPixel - pBits - y*nRowLength)/nPixelSize;
-		rcResult.left = min(rcResult.left, nPixel);
-	}
-
-	// Right margin
-	for (y = rcResult.top; y < rcResult.bottom; ++y)
-	{
-		LPBYTE pRowStart = pBits + y*nRowLength;
-		LPBYTE pPixel = pRowStart + nPixelSize*szImage.cx - 1;
-		LPBYTE pEndPixel = pRowStart + nPixelSize*rcResult.right;
-
-		while (pPixel >= pEndPixel && *pPixel == nWhite)
-			--pPixel;
-
-		int nPixel = static_cast<int>(pPixel - pRowStart)/nPixelSize;
-		rcResult.right = max(rcResult.right, nPixel + 1);
-	}
-
-	delete pBmpPage;
 	return rcResult;
 }
 
