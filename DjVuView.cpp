@@ -205,6 +205,7 @@ BEGIN_MESSAGE_MAP(CDjVuView, CMyScrollView)
 	ON_WM_SETFOCUS()
 	ON_WM_KILLFOCUS()
 	ON_WM_CANCELMODE()
+	ON_WM_CAPTURECHANGED()
 	ON_WM_SETCURSOR()
 	ON_WM_LBUTTONDOWN()
 	ON_WM_LBUTTONUP()
@@ -291,7 +292,8 @@ CDjVuView::CDjVuView()
 	  m_bHoverIsCustom(false), m_bDraggingRect(false), m_nSelectionPage(-1),
 	  m_pHoverAnno(NULL), m_pClickedAnno(NULL), m_bDraggingLink(false),
 	  m_bPopupMenu(false), m_bClickedCustom(false), m_bUpdateBitmaps(false),
-	  m_nWhitePoint(15), m_nMinWhiteMargins(20), m_bMouseNavigation(false)
+	  m_nWhitePoint(15), m_nMinWhiteMargins(20), m_bMouseNavigation(false),
+	  m_bAutoScrollTimerActive(false)
 {
 	m_historyPoint = m_history.end();
 	m_strForSearch = "";
@@ -377,16 +379,25 @@ void CDjVuView::OnDraw(CDC* pDC)
 
 	CRect rcIntersect;
 
-	for (int nPage = 0; nPage < m_nPageCount; ++nPage)
+	int nStartPage = 0;
+	if (m_nLayout == SinglePage || m_nLayout == Facing)
+		nStartPage = m_nPage;
+	else if (m_nLayout == Continuous || m_nLayout == ContinuousFacing)
+		nStartPage = CalcTopPage();
+
+	for (int nPage = nStartPage; nPage < m_nPageCount; ++nPage)
 	{
 		Page& page = m_pages[nPage];
 		if (m_nLayout == SinglePage || m_nLayout == Facing)
 		{
 			if (nPage != m_nPage && !(m_nLayout == Facing && HasFacingPage(m_nPage) && nPage == m_nPage + 1))
-				continue;
+				break;
 		}
 		else if (m_nLayout == Continuous || m_nLayout == ContinuousFacing)
 		{
+			if (page.rcDisplay.top > rcClip.bottom)
+				break;
+
 			if (!rcIntersect.IntersectRect(m_pages[nPage].rcDisplay, rcClip))
 				continue;
 		}
@@ -711,6 +722,13 @@ void CDjVuView::DrawAnnotation(CDC* pDC, const Annotation& anno, int nPage, bool
 			map<int, HFONT>::iterator it = m_fonts.find(nFontSize);
 			if (it == m_fonts.end())
 			{
+				if (m_fonts.size() >= 64)
+				{
+					for (map<int, HFONT>::iterator fit = m_fonts.begin(); fit != m_fonts.end(); ++fit)
+						::DeleteObject(fit->second);
+					m_fonts.clear();
+				}
+
 				lf.lfHeight = nFontSize;
 				HFONT hFont = ::CreateFontIndirect(&lf);
 				it = m_fonts.insert(make_pair(nFontSize, hFont)).first;
@@ -899,6 +917,13 @@ void CDjVuView::DrawTransparentText(CDC* pDC, int nPage)
 		map<int, HFONT>::iterator it = m_fonts.find(nFontSize);
 		if (it == m_fonts.end())
 		{
+			if (m_fonts.size() >= 64)
+			{
+				for (map<int, HFONT>::iterator fit = m_fonts.begin(); fit != m_fonts.end(); ++fit)
+					::DeleteObject(fit->second);
+				m_fonts.clear();
+			}
+
 			LOGFONT lf;
 			m_sampleFont.GetLogFont(&lf);
 			lf.lfHeight = nFontSize;
@@ -958,12 +983,38 @@ CDjVuDoc* CDjVuView::GetDocument() const // non-debug version is inline
 
 // CDjVuView message handlers
 
+void CDjVuView::StartAutoScrollTimer()
+{
+	if (!m_bAutoScrollTimerActive)
+	{
+		SetTimer(2, 50, NULL);
+		m_bAutoScrollTimerActive = true;
+	}
+}
+
+void CDjVuView::StopAutoScrollTimer()
+{
+	if (m_bAutoScrollTimerActive)
+	{
+		KillTimer(2);
+		m_bAutoScrollTimerActive = false;
+	}
+}
+
+void CDjVuView::OnCaptureChanged(CWnd* pWnd)
+{
+	if (pWnd != this)
+		StopDragging();
+
+	CMyScrollView::OnCaptureChanged(pWnd);
+}
+
 void CDjVuView::OnInitialUpdate()
 {
 	CMyScrollView::OnInitialUpdate();
 
 	SetTimer(1, 100, NULL);
-	SetTimer(2, 50, NULL);
+	m_bAutoScrollTimerActive = false;
 
 	m_pSource = GetDocument()->GetSource();
 	m_pSource->AddRef();
@@ -1262,6 +1313,13 @@ void CDjVuView::ScrollToPage(int nPage, const CPoint& ptOffset, bool bMargin)
 
 void CDjVuView::DeleteBitmaps(bool bReloadSize)
 {
+	for (map<int, HFONT>::iterator it = m_fonts.begin(); it != m_fonts.end(); ++it)
+	{
+		if (it->second != NULL)
+			::DeleteObject(it->second);
+	}
+	m_fonts.clear();
+
 	for (int nPage = 0; nPage < m_nPageCount; ++nPage)
 	{
 		m_pages[nPage].DeleteBitmap();
@@ -3108,6 +3166,7 @@ void CDjVuView::OnLButtonDown(UINT nFlags, CPoint point)
 
 		m_bDragging = true;
 		m_bDraggingText = true;
+		StartAutoScrollTimer();
 
 		m_nPrevPage = m_nStartPage;
 		m_nSelStartPos = GetTextPosFromPoint(m_nStartPage, point);
@@ -3137,6 +3196,7 @@ void CDjVuView::OnLButtonDown(UINT nFlags, CPoint point)
 
 		m_bDragging = true;
 		m_bDraggingRect = true;
+		StartAutoScrollTimer();
 
 		SetCapture();
 		ShowCursor();
@@ -3450,9 +3510,42 @@ void CDjVuView::OnLButtonUp(UINT nFlags, CPoint point)
 		GoToURL(strURL);
 }
 
+CRect CDjVuView::GetRedLineScreenRect(int nPage, const CPoint& ptRedLine)
+{
+	if (nPage < 0 || nPage >= m_nPageCount)
+		return CRect(0, 0, 0, 0);
+
+	Page& page = m_pages[nPage];
+	if (!page.info.bDecoded)
+		return CRect(0, 0, 0, 0);
+
+	int nRotate = (m_nRotate + page.info.nInitialRotate) % 4;
+	int x1, y1, x2, y2;
+	if ((nRotate % 2) != 0)
+	{
+		x1 = ptRedLine.x;
+		y1 = 0;
+		x2 = ptRedLine.x;
+		y2 = page.info.szPage.cy;
+	}
+	else
+	{
+		x1 = 0;
+		y1 = ptRedLine.y;
+		x2 = page.info.szPage.cx;
+		y2 = ptRedLine.y;
+	}
+
+	GRect rcLine(min(x1, x2), min(y1, y2), abs(x2 - x1) + 1, abs(y2 - y1) + 1);
+	CRect rcClient = TranslatePageRect(nPage, rcLine) - GetScrollPosition();
+	rcClient.InflateRect(4, 4);
+	return rcClient;
+}
+
 void CDjVuView::StopDragging()
 {
 	m_bMouseNavigation = false;
+	StopAutoScrollTimer();
 	if (m_bDragging || m_bDraggingRight)
 	{
 		m_bDragging = false;
@@ -3534,10 +3627,19 @@ void CDjVuView::OnMouseMove(UINT nFlags, CPoint point)
 				CPoint pt = ScreenToDjVu(nPage, point + GetScrollPosition() - m_pages[nPage].ptOffset);
 				if (m_RedLine->nPage != nPage || m_RedLine->point != pt)
 				{
+					CRect rcClipViewport(CPoint(0, 0), GetViewportSize());
+
+					CRect rcOld = GetRedLineScreenRect(m_RedLine->nPage, m_RedLine->point);
+					if (!rcOld.IsRectEmpty() && rcOld.IntersectRect(rcOld, rcClipViewport))
+						InvalidateRect(rcOld, FALSE);
+
 					m_RedLine->nPage = nPage;
 					m_RedLine->point = pt;
+
+					CRect rcNew = GetRedLineScreenRect(nPage, pt);
+					if (!rcNew.IsRectEmpty() && rcNew.IntersectRect(rcNew, rcClipViewport))
+						InvalidateRect(rcNew, FALSE);
 				}
-				InvalidateViewport();
 			}
 		}
 		return;
@@ -3566,6 +3668,7 @@ void CDjVuView::OnMouseMove(UINT nFlags, CPoint point)
 		{
 			m_bDraggingLink = false;
 			m_bDraggingText = true;
+			StartAutoScrollTimer();
 			UpdateHoverAnnotation(CPoint(-1, -1));
 			ClearSelection();
 			UpdateCursor();
@@ -3574,6 +3677,7 @@ void CDjVuView::OnMouseMove(UINT nFlags, CPoint point)
 		{
 			m_bDraggingLink = false;
 			m_bDraggingRect = true;
+			StartAutoScrollTimer();
 			UpdateHoverAnnotation(CPoint(-1, -1));
 			ClearSelection();
 
@@ -3870,13 +3974,46 @@ int CDjVuView::GetPageFromPoint(CPoint point) const
 	}
 	else if (m_nLayout == Continuous || m_nLayout == ContinuousFacing)
 	{
-		for (int nPage = 0; nPage < m_nPageCount; ++nPage)
+		int low = 0, high = m_nPageCount - 1;
+		while (low <= high)
 		{
-			CRect rcPage(m_pages[nPage].ptOffset, m_pages[nPage].szBitmap);
-			rcPage.InflateRect(rcFrame);
+			int mid = low + (high - low) / 2;
+			const Page& page = m_pages[mid];
 
-			if (rcPage.PtInRect(point))
-				return nPage;
+			if (point.y < page.rcDisplay.top)
+			{
+				high = mid - 1;
+			}
+			else if (point.y > page.rcDisplay.bottom)
+			{
+				low = mid + 1;
+			}
+			else
+			{
+				CRect rcPage(page.ptOffset, page.szBitmap);
+				rcPage.InflateRect(rcFrame);
+				if (rcPage.PtInRect(point))
+					return mid;
+
+				if (m_nLayout == ContinuousFacing)
+				{
+					if (HasFacingPage(mid) && mid + 1 < m_nPageCount)
+					{
+						CRect rcPage2(m_pages[mid + 1].ptOffset, m_pages[mid + 1].szBitmap);
+						rcPage2.InflateRect(rcFrame);
+						if (rcPage2.PtInRect(point))
+							return mid + 1;
+					}
+					if (mid > 0 && HasFacingPage(mid - 1))
+					{
+						CRect rcPagePrev(m_pages[mid - 1].ptOffset, m_pages[mid - 1].szBitmap);
+						rcPagePrev.InflateRect(rcFrame);
+						if (rcPagePrev.PtInRect(point))
+							return mid - 1;
+					}
+				}
+				return -1;
+			}
 		}
 	}
 
@@ -4402,8 +4539,8 @@ void CDjVuView::OnDestroy()
 			GetMDIChild()->GetBookmarksTree(false)->RemoveObserver(this);
 	}
 
+	StopAutoScrollTimer();
 	KillTimer(1);
-	KillTimer(2);
 	ShowCursor();
 
 	CMyScrollView::OnDestroy();
@@ -6062,46 +6199,62 @@ CString MakePreviewString(const GUTF8String& text, int nStart, int nEnd, BOOL& t
 			++nEnd;
 	}
 
-	// Convert text to CString and add -1/+10 words to the string
-	CString strPreview = MakeCString(text.substr(nStart, nEnd - nStart));
-
+	CString strMatch = MakeCString(text.substr(nStart, nEnd - nStart));
 	CString strBefore = MakeCString(text.substr(0, nStart));
-
-	int nPos = strBefore.GetLength() - 1;
-	for (int i = 0; i < 2 && nPos >= 0; ++i)
-	{
-		if (i > 0)
-			strPreview = _T(" ") + strPreview;
-
-		while (nPos >= 0 && static_cast<unsigned int>(strBefore[nPos]) > 0x20
-			&& strBefore.GetLength() - nPos < 30)
-		{
-			strPreview = strBefore[nPos--] + strPreview;
-		}
-
-		while (nPos >= 0 && static_cast<unsigned int>(strBefore[nPos]) <= 0x20)
-			--nPos;
-	}
-
 	CString strAfter = MakeCString(text.substr(nEnd, text.length() - nEnd));
 
-	nPos = 0;
-	for (int j = 0; j < 11 && nPos < strAfter.GetLength(); ++j)
+	// Forward-slice up to 2 words before match without code-unit reversal
+	int nPos = strBefore.GetLength() - 1;
+	int nFirstWordStart = -1;
+	int wordsFound = 0;
+
+	while (nPos >= 0 && wordsFound < 2)
 	{
-		if (j > 0)
-			strPreview += _T(" ");
+		while (nPos >= 0 && static_cast<unsigned int>(strBefore[nPos]) <= 0x20)
+			--nPos;
 
-		while (nPos < strAfter.GetLength() && static_cast<unsigned int>(strAfter[nPos]) > 0x20
-			&& nPos < 200)
-		{
-			strPreview += strAfter[nPos++];
-		}
+		if (nPos < 0)
+			break;
 
-		while (nPos < strAfter.GetLength() && static_cast<unsigned int>(strAfter[nPos]) <= 0x20)
-			++nPos;
+		while (nPos >= 0 && static_cast<unsigned int>(strBefore[nPos]) > 0x20 && (strBefore.GetLength() - nPos) < 30)
+			--nPos;
+
+		nFirstWordStart = nPos + 1;
+		++wordsFound;
 	}
 
-	return strPreview;
+	CString strPrefix = _T("");
+	if (nFirstWordStart >= 0)
+	{
+		strPrefix = strBefore.Mid(nFirstWordStart);
+		strPrefix.TrimRight();
+		if (!strPrefix.IsEmpty())
+			strPrefix += _T(" ");
+	}
+
+	// Forward-slice up to 10 words after match
+	int nAfterPos = 0;
+	int afterWords = 0;
+	int nAfterEnd = 0;
+
+	while (nAfterPos < strAfter.GetLength() && afterWords < 10 && nAfterPos < 200)
+	{
+		while (nAfterPos < strAfter.GetLength() && static_cast<unsigned int>(strAfter[nAfterPos]) <= 0x20)
+			++nAfterPos;
+
+		if (nAfterPos >= strAfter.GetLength() || nAfterPos >= 200)
+			break;
+
+		while (nAfterPos < strAfter.GetLength() && static_cast<unsigned int>(strAfter[nAfterPos]) > 0x20 && nAfterPos < 200)
+			++nAfterPos;
+
+		nAfterEnd = nAfterPos;
+		++afterWords;
+	}
+
+	CString strSuffix = strAfter.Left(nAfterEnd);
+
+	return strPrefix + strMatch + strSuffix;
 }
 
 void CDjVuView::FindSelectionZones(DjVuSelection& sel, DjVuTXT* pText, int nStart, int nEnd) const
@@ -6415,9 +6568,9 @@ void CDjVuView::ClearSelection(int nPage)
 	else
 	{
 		CWaitCursor* pWaitCursor = new CWaitCursor();
+		bool bAnyCleared = false;
 		for (nPage = 0; nPage < m_nPageCount; ++nPage)
 		{
-
 			Page& page = m_pages[nPage];
 
 			if (page.nSelStart != -1)
@@ -6425,17 +6578,20 @@ void CDjVuView::ClearSelection(int nPage)
 				page.selection.empty();
 				page.nSelStart = -1;
 				page.nSelEnd = -1;
-				InvalidatePage(nPage);
 				page.bIsFindResult = false;
+				bAnyCleared = true;
 			}
 		}
 		delete pWaitCursor;
 
 		if (m_nSelectionPage != -1)
 		{
-			InvalidatePage(m_nSelectionPage);
 			m_nSelectionPage = -1;
+			bAnyCleared = true;
 		}
+
+		if (bAnyCleared)
+			InvalidateViewport();
 
 		m_bHasSelection = false;
 		GetMainFrame()->SetMessageTxt(AFX_IDS_IDLEMESSAGE);
@@ -9401,11 +9557,22 @@ CRect CDjVuView::CheckWhiteMargins(int nPage)
 		for (bottom = 0; bottom < nRows; ++bottom)
 		{
 			bit = first_bit + nRowSize * bottom;
-			for (int row_pos = 0; row_pos < nColumns; ++row_pos)
+			int row_pos = 0;
+			while (row_pos + 8 <= nColumns)
+			{
+				uint64_t chunk;
+				memcpy(&chunk, bit, sizeof(uint64_t));
+				if (chunk != 0)
+					break;
+				bit += 8;
+				row_pos += 8;
+			}
+			while (row_pos < nColumns)
 			{
 				if (*bit == 0)
 				{
 					++bit;
+					++row_pos;
 				}
 				else
 				{
