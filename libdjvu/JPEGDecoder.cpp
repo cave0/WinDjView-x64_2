@@ -360,10 +360,27 @@ JPEGDecoder::decode(ByteStream & bs,GPixmap &pix)
       int line = start_line + l;
       GPixel *row = pix[line];
       const unsigned char *src = (const unsigned char *)buffer[l];
+      const int w = (int)cinfo.output_width;
 
       if ( isGrey == 1 )
       {
-        for (int i = 0; i < (int)cinfo.output_width; i++)
+        int i = 0;
+#if defined(__SSSE3__) || defined(_M_X64) || defined(_M_IX86_FP)
+        const __m128i shuf0 = _mm_setr_epi8(0,0,0, 1,1,1, 2,2,2, 3,3,3, 4,4,4, 5);
+        const __m128i shuf1 = _mm_setr_epi8(5,5, 6,6,6, 7,7,7, 8,8,8, 9,9,9, 10,10);
+        const __m128i shuf2 = _mm_setr_epi8(10, 11,11,11, 12,12,12, 13,13,13, 14,14,14, 15,15,15);
+        for (; i + 15 < w; i += 16)
+        {
+          __m128i g = _mm_loadu_si128((const __m128i*)(src + i));
+          __m128i p0 = _mm_shuffle_epi8(g, shuf0);
+          __m128i p1 = _mm_shuffle_epi8(g, shuf1);
+          __m128i p2 = _mm_shuffle_epi8(g, shuf2);
+          _mm_storeu_si128((__m128i*)((char*)&row[i]), p0);
+          _mm_storeu_si128((__m128i*)((char*)&row[i] + 16), p1);
+          _mm_storeu_si128((__m128i*)((char*)&row[i] + 32), p2);
+        }
+#endif
+        for (; i < w; i++)
         {
           unsigned char g = src[i];
           row[i].r = g;
@@ -372,7 +389,26 @@ JPEGDecoder::decode(ByteStream & bs,GPixmap &pix)
         }
       }else
       {
-        for (int i = 0; i < (int)cinfo.output_width; i++, src += 3)
+        int i = 0;
+        for (; i + 3 < w; i += 4, src += 12)
+        {
+          row[i + 0].r = src[0];
+          row[i + 0].g = src[1];
+          row[i + 0].b = src[2];
+
+          row[i + 1].r = src[3];
+          row[i + 1].g = src[4];
+          row[i + 1].b = src[5];
+
+          row[i + 2].r = src[6];
+          row[i + 2].g = src[7];
+          row[i + 2].b = src[8];
+
+          row[i + 3].r = src[9];
+          row[i + 3].g = src[10];
+          row[i + 3].b = src[11];
+        }
+        for (; i < w; i++, src += 3)
         {
           row[i].r = src[0];
           row[i].g = src[1];
@@ -405,7 +441,7 @@ typedef struct
 
 typedef byte_stream_src_mgr * byte_stream_src_ptr; 
 
-#define INPUT_BUF_SIZE   4096
+#define INPUT_BUF_SIZE   65536
 
 METHODDEF(void)
 init_source (j_decompress_ptr cinfo)
