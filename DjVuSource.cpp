@@ -1772,10 +1772,22 @@ PageInfo DjVuSource::ReadPageInfo(int nPage, bool bNeedText, bool bNeedAnno)
 					pageInfo.bTextDecoded = true;
 				}
 			}
-			else if (bNeedAnno && (chkid == "ANTa" || chkid == "ANTz" || chkid == "FORM:ANNO"))
+			else if (bNeedAnno && chkid == "FORM:ANNO")
 			{
-				if (pAnnoStream != NULL)
-					pAnnoStream->copy(*chunk_stream);
+			    if (pAnnoStream != NULL)
+			        pAnnoStream->copy(*chunk_stream);
+			}
+			else if (bNeedAnno && (chkid == "ANTa" || chkid == "ANTz"))
+			{
+			    if (pAnnoStream != NULL)
+			    {
+			        const GP<IFFByteStream> iffout =
+			            IFFByteStream::create(pAnnoStream);
+			
+			        iffout->put_chunk(chkid);
+			        iffout->copy(*chunk_stream);
+			        iffout->close_chunk();
+			    }
 			}
 			else if (bNeedAnno && chkid == "INCL")
 			{
