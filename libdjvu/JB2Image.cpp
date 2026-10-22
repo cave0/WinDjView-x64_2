@@ -393,9 +393,7 @@ JB2Dict::JB2Codec::Decode::init(const GP<ByteStream> &gbs)
 JB2Dict::JB2Codec::JB2Codec(const bool xencoding)
   : encoding(xencoding),
     cur_ncell(0),
-    gbitcells(bitcells,CELLCHUNK+CELLEXTRA),
-    gleftcell(leftcell,CELLCHUNK+CELLEXTRA),
-    grightcell(rightcell,CELLCHUNK+CELLEXTRA),
+    gnum_nodes(num_nodes, CELLCHUNK+CELLEXTRA),
     refinementp(false),
     gotstartrecordp(0),
     dist_comment_byte(0),
@@ -420,8 +418,8 @@ JB2Dict::JB2Codec::JB2Codec(const bool xencoding)
   memset(bitdist, 0, sizeof(bitdist));
   memset(cbitdist, 0, sizeof(cbitdist));
   // Initialize numcoder
-  bitcells[0] = 0; // dummy cell
-  leftcell[0] = rightcell[0] = 0;
+  num_nodes[0].bitcell = 0; // dummy cell
+  num_nodes[0].left = num_nodes[0].right = 0;
   cur_ncell = 1;
 }
 
@@ -446,9 +444,7 @@ JB2Dict::JB2Codec::reset_numcoder()
   rel_loc_y_last = 0;
   rel_size_x = 0;
   rel_size_y = 0;
-  gbitcells.clear();
-  gleftcell.clear();
-  grightcell.clear();
+  gnum_nodes.clear();
   cur_ncell = 1;
 }
 
@@ -485,32 +481,33 @@ JB2Dict::JB2Codec::CodeNum(int low, int high, NumContext *pctx, int v)
     G_THROW( ERR_MSG("JB2Image.bad_numcontext") );
   // Start all phases
   cutoff = 0;
+  NumContext curr_idx = *pctx;
   for(int phase=1,range=0xffffffff;range != 1;)
     {
-      if (! *pctx)
+      if (! curr_idx)
         {
-		  const int max_ncell = gbitcells;
+          const int max_ncell = gnum_nodes;
           if (cur_ncell >= max_ncell)
             {
               // Geometric 1.5x expansion to prevent repetitive reallocations
               const int growth = max_ncell >> 1;
               const int nmax_ncell = max_ncell + (growth > CELLCHUNK ? growth : CELLCHUNK);
-              gbitcells.resize(nmax_ncell);
-              gleftcell.resize(nmax_ncell);
-              grightcell.resize(nmax_ncell);
+              gnum_nodes.resize(nmax_ncell);
             }
-          *pctx = cur_ncell ++;
-          bitcells[*pctx] = 0;
-          leftcell[*pctx] = rightcell[*pctx] = 0;
+          curr_idx = (NumContext)cur_ncell++;
+          num_nodes[curr_idx].bitcell = 0;
+          num_nodes[curr_idx].left = num_nodes[curr_idx].right = 0;
+          *pctx = curr_idx;
         }
-      // encode
+      // encode / decode
       const bool decision = encoding
         ? ((low < cutoff && high >= cutoff)
-          ? CodeBit((v>=cutoff),bitcells[*pctx])
+          ? CodeBit((v>=cutoff),num_nodes[curr_idx].bitcell)
           : (v >= cutoff))
-        : ((low>=cutoff)||((high>=cutoff)&&CodeBit(false,bitcells[*pctx])));
+        : ((low>=cutoff)||((high>=cutoff)&&CodeBit(false,num_nodes[curr_idx].bitcell)));
       // context for new bit
-      pctx = decision?(&rightcell[*pctx]):(&leftcell[*pctx]);
+      pctx = decision?(&num_nodes[curr_idx].right):(&num_nodes[curr_idx].left);
+      curr_idx = *pctx;
       // phase dependent part
       switch (phase) 
         {

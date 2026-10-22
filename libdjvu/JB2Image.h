@@ -672,14 +672,15 @@ private:
   bool encoding;
 
 protected:
-  // NumCoder
+  // NumCoder: unified structure for single-cache-line locality
+  struct NumNode {
+    NumContext left;
+    NumContext right;
+    BitContext bitcell;
+  };
   int cur_ncell;
-  BitContext *bitcells;
-  GPBuffer<BitContext> gbitcells;
-  NumContext *leftcell;
-  GPBuffer<NumContext> gleftcell;
-  NumContext *rightcell;
-  GPBuffer<NumContext> grightcell;
+  NumNode *num_nodes;
+  GPBuffer<NumNode> gnum_nodes;
   // Info
   bool refinementp;
   char gotstartrecordp;
