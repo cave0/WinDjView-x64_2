@@ -14,6 +14,13 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
+where msbuild >nul 2>nul
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] 'msbuild' was not found in your PATH.
+    echo Please run this script from the "x64 Native Tools Command Prompt for VS".
+    exit /b 1
+)
+
 set X64=1
 
 echo =======================================================
@@ -32,9 +39,13 @@ if %LIB_ERR% neq 0 (
 
 echo.
 echo =======================================================
-echo [2/2] Building WinDjView (x64)...
+echo [2/2] Building WinDjView (x64) with MSBuild...
 echo =======================================================
-nmake /nologo X64=1 %*
+if /i "%~1"=="clean" (
+    msbuild WinDjView.vcxproj /p:Configuration=Release /p:Platform=x64 /t:Clean /nologo
+) else (
+    msbuild WinDjView.vcxproj /p:Configuration=Release /p:Platform=x64 -m /nologo
+)
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] WinDjView compilation failed with error code %ERRORLEVEL%
     goto :fail
