@@ -18,7 +18,7 @@
 #undef APSTUDIO_READONLY_SYMBOLS
 
 /////////////////////////////////////////////////////////////////////////////
-// àíãëèéñêèé (ÑØÀ) resources
+// Ã Ã­Ã£Ã«Ã¨Ã©Ã±ÃªÃ¨Ã© (Ã‘Ã˜Ã€) resources
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
 #ifdef _WIN32
@@ -100,6 +100,13 @@ IDC_CURSOR_SPLIT_HORZ   CURSOR                  "res\\split_h.cur"
 // remains consistent on all systems.
 IDR_MAINFRAME           ICON                    "res\\WinDjView.ico"
 IDR_DjVuTYPE            ICON                    "res\\DjVuDoc.ico"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Manifest
+//
+
+1                       24                      "res\\WinDjView.manifest"
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -306,7 +313,7 @@ BEGIN
         BEGIN
             MENUITEM "&Left\tCtrl+Shift+Left Arrow", ID_ROTATE_LEFT
             MENUITEM "&Right\tCtrl+Shift+Right Arrow", ID_ROTATE_RIGHT
-            MENUITEM "&180°\tCtrl+Shift+Down Arrow", ID_ROTATE_180
+            MENUITEM "&180Â°\tCtrl+Shift+Down Arrow", ID_ROTATE_180
             MENUITEM "R&eset Rotation\tCtrl+Shift+Up Arrow", ID_ROTATE_RESET
         END
         POPUP "La&yout"
@@ -1355,7 +1362,7 @@ BEGIN
     ID_FILE_DELETE          "Remove the current document into recycle bin"
     ID_FILE_RELOAD          "Reload this document"
     ID_MOUSE_POS            "  %d x %d  "
-    ID_ROTATE_PAGES         "  %d°"
+    ID_ROTATE_PAGES         "  %dÂ°"
     ID_DOC_METADATA         "Display metadata of the active document\nDocument Metadata"
 	ID_SELECTION_RECT_SIZE	"Rectangle size: %d x %d "
 END
@@ -1597,7 +1604,7 @@ BEGIN
     IDS_CHECK_CLOSE_MULTIPLE "Always warn when closing multiple documents"
 END
 
-#endif    // àíãëèéñêèé (ÑØÀ) resources
+#endif    // Ã Ã­Ã£Ã«Ã¨Ã©Ã±ÃªÃ¨Ã© (Ã‘Ã˜Ã€) resources
 /////////////////////////////////////////////////////////////////////////////
 
 
