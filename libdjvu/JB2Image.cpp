@@ -1380,46 +1380,57 @@ JB2Dict::LibRect::compute_bounding_box(const GBitmap &bm)
   // Get size
   const int w = bm.columns();
   const int h = bm.rows();
-  const int s = bm.rowsize();
-  // Right border
-  for(right=w-1;right >= 0;--right)
+  if (w <= 0 || h <= 0)
     {
-      unsigned char const *p = bm[0] + right;
-      unsigned char const * const pe = p+(s*h);
-      for (;(p<pe)&&(!*p);p+=s)
-      	continue;
-      if (p<pe)
-        break;
+      left = right = top = bottom = 0;
+      return;
     }
-  // Top border
-  for(top=h-1;top >= 0;--top)
+
+  // Top border: scan row-by-row from top down (sequential cache lines)
+  for (top = h - 1; top >= 0; --top)
     {
       unsigned char const *p = bm[top];
-      unsigned char const * const pe = p+w;
-      for (;(p<pe)&&(!*p); ++p)
-      	continue;
-      if (p<pe)
-        break;
+      int x = 0;
+      for (; x + 8 <= w; x += 8)
+        if (*(const unsigned long long*)(p + x) != 0ULL)
+          goto found_top;
+      for (; x < w; ++x)
+        if (p[x])
+          goto found_top;
     }
-  // Left border
-  for (left=0;left <= right;++left)
-    {
-      unsigned char const *p = bm[0] + left;
-      unsigned char const * const pe=p+(s*h);
-      for (;(p<pe)&&(!*p);p+=s)
-      	continue;
-      if (p<pe)
-        break;
-    }
-  // Bottom border
-  for(bottom=0;bottom <= top;++bottom)
+  // All pixels are zero
+  left = right = top = bottom = 0;
+  return;
+
+found_top:
+  // Bottom border: scan row-by-row from bottom up
+  for (bottom = 0; bottom <= top; ++bottom)
     {
       unsigned char const *p = bm[bottom];
-      unsigned char const * const pe = p+w;
-      for (;(p<pe)&&(!*p); ++p)
-      	continue;
-      if (p<pe)
-        break;
+      int x = 0;
+      for (; x + 8 <= w; x += 8)
+        if (*(const unsigned long long*)(p + x) != 0ULL)
+          goto found_bottom;
+      for (; x < w; ++x)
+        if (p[x])
+          goto found_bottom;
+    }
+
+found_bottom:
+  // Left and Right borders: horizontal scan bounded strictly between [bottom, top]
+  left = w - 1;
+  right = 0;
+  for (int y = bottom; y <= top; ++y)
+    {
+      unsigned char const *p = bm[y];
+      for (int x = 0; x < left; ++x)
+        {
+          if (p[x]) { left = x; break; }
+        }
+      for (int x = w - 1; x > right; --x)
+        {
+          if (p[x]) { right = x; break; }
+        }
     }
 }
 
