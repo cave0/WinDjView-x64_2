@@ -331,6 +331,17 @@ CDIB* CRenderThread::Render(GP<DjVuImage> pImage, const CSize& size,
 		}
 	}
 
+	// 1. Bypass PnmFixed scaling when high-quality color scaling is off,
+	// allowing both color and bilevel JB2 images to use LibDjVu native fractional decoding.
+	if (!displaySettings.bScaleColorPnm && !displaySettings.bScaleSubpix)
+		bScalePnmFixed = false;
+
+	// 2. Deep-reduction guard: When downscaling by more than 4x (e.g. Fit Page on high-DPI scans),
+	// decoding at 100% native resolution causes massive memory bloat (35MB-100MB per page).
+	// Force LibDjVu native decimation to terminate wavelet synthesis early.
+	if (szScaled.cx * 4 < szImage.cx && szScaled.cy * 4 < szImage.cy && !displaySettings.bScaleSubpix)
+		bScalePnmFixed = false;
+
 	// Disable PnmFixed scaling for color images according to user settings
 	GP<IW44Image> bg44 = pImage->get_bg44();
 	GP<GPixmap> bgpm = pImage->get_bgpm();
@@ -352,27 +363,31 @@ CDIB* CRenderThread::Render(GP<DjVuImage> pImage, const CSize& size,
 	{
 		const int nSubsample = (nDisplayMode == CDjVuView::BlackAndWhite) ? 1 : 4;
 
+		// When LibDjVu native scaling is active (bScalePnmFixed == false), pass the scaled bounds
+		// as allref so LibDjVu decodes directly into the target resolution without full-page decompression.
+		const GRect allref = bScalePnmFixed ? rect : GRect(0, 0, szScaled.cx, szScaled.cy);
+
 		switch (nDisplayMode)
 		{
 		case CDjVuView::BlackAndWhite:
-			pGBitmap = pImage->get_bitmap(rect, rect, nSubsample);
+			pGBitmap = pImage->get_bitmap(rect, allref, nSubsample);
 			break;
 
 		case CDjVuView::Foreground:
-			pGPixmap = pImage->get_fg_pixmap(rect, rect);
+			pGPixmap = pImage->get_fg_pixmap(rect, allref);
 			if (pGPixmap == NULL)
-				pGBitmap = pImage->get_bitmap(rect, rect, nSubsample);
+				pGBitmap = pImage->get_bitmap(rect, allref, nSubsample);
 			break;
 
 		case CDjVuView::Background:
-			pGPixmap = pImage->get_bg_pixmap(rect, rect);
+			pGPixmap = pImage->get_bg_pixmap(rect, allref);
 			break;
 
 		case CDjVuView::Color:
 		default:
-			pGPixmap = pImage->get_pixmap(rect, rect);
+			pGPixmap = pImage->get_pixmap(rect, allref);
 			if (pGPixmap == NULL)
-				pGBitmap = pImage->get_bitmap(rect, rect, nSubsample);
+				pGBitmap = pImage->get_bitmap(rect, allref, nSubsample);
 		}
 	}
 	catch (GException&)
