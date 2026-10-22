@@ -681,10 +681,19 @@ ZPCodec::Decode::Decode(GP<ByteStream> gbs, const bool djvucompat)
 #endif
 }
  
-ZPCodec::Decode::~Decode() {}
+ZPCodec::Decode::~Decode()
+{
+  if (in_end > in_ptr && bs)
+    {
+      try {
+        bs->seek(-(long)(in_end - in_ptr), 1);
+      } catch (...) {}
+    }
+}
 
 ZPCodec::ZPCodec(GP<ByteStream> xgbs, const bool xencoding, const bool djvucompat)
-: gbs(xgbs), bs(xgbs), encoding(xencoding), fence(0), subend(0), buffer(0), nrun(0)
+: gbs(xgbs), bs(xgbs), encoding(xencoding), fence(0), subend(0), buffer(0), nrun(0),
+  in_ptr(in_buf), in_end(in_buf)
 {
   // Create machine independent ffz table
   for (int i=0; i<256; i++)
@@ -740,12 +749,22 @@ ZPCodec::Decode::init(void)
   assert(sizeof(unsigned int)==4);
   assert(sizeof(unsigned short)==2);
   a = 0;
-  /* Read first 16 bits of code */
-  if (! bs->read((void*)&byte, 1))
-    byte = 0xff;
+  in_ptr = in_buf;
+  in_end = in_buf;
+
+  /* Read first 16 bits of code with chunk buffering */
+  auto get_next_byte = [this]() -> unsigned char {
+    if (in_ptr < in_end)
+      return *in_ptr++;
+    size_t n = bs->read((void*)in_buf, ZP_BUF_SIZE);
+    in_ptr = in_buf;
+    in_end = in_buf + n;
+    return (in_ptr < in_end) ? *in_ptr++ : 0xff;
+  };
+
+  byte = get_next_byte();
   code = (byte<<8);
-  if (! bs->read((void*)&byte, 1))
-    byte = 0xff;
+  byte = get_next_byte();
   code = code | byte;
   /* Preload buffer */
   delay = 25;
@@ -761,11 +780,25 @@ ZPCodec::preload(void)
 {
   while (scount<=24)
     {
-      if (bs->read((void*)&byte, 1) < 1) 
+      if (in_ptr < in_end)
         {
-          byte = 0xff;
-          if (--delay < 1)
-            G_THROW( ByteStream::EndOfFile );
+          byte = *in_ptr++;
+        }
+      else
+        {
+          size_t n = bs->read((void*)in_buf, ZP_BUF_SIZE);
+          in_ptr = in_buf;
+          in_end = in_buf + n;
+          if (in_ptr < in_end)
+            {
+              byte = *in_ptr++;
+            }
+          else
+            {
+              byte = 0xff;
+              if (--delay < 1)
+                G_THROW( ByteStream::EndOfFile );
+            }
         }
       buffer = (buffer<<8) | byte;
       scount += 8;

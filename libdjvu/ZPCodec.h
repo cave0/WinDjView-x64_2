@@ -308,6 +308,11 @@ public:
   };
   void newtable(ZPCodec::Table *table);
   BitContext state(float prob1);
+  // High-throughput state accessors for multi-bit skips
+  inline unsigned int get_a() const { return a; }
+  inline unsigned int get_fence() const { return fence; }
+  inline const unsigned int* get_p() const { return p; }
+  inline void add_a(unsigned int delta) { a += delta; }
   // Non-adaptive encoder/decoder
   void encoder_nolearn(int pix, BitContext &ctx);
   int  decoder_nolearn(BitContext &ctx);
@@ -334,6 +339,11 @@ protected:
   BitContext    dn[256];
   // machine independent ffz
   char          ffzt[256];
+  // chunk buffer for high-throughput decode streaming
+  enum { ZP_BUF_SIZE = 4096 };
+  unsigned char in_buf[ZP_BUF_SIZE];
+  const unsigned char *in_ptr;
+  const unsigned char *in_end;
   // encoder private
   void einit (void);
   void eflush (void);
