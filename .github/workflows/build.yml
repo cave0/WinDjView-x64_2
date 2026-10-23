@@ -18,19 +18,31 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Setup MSVC x64 Developer Environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
-      - name: Build WinDjView
+      - name: Clean and Build WinDjView
         shell: cmd
-        run: build_x64.bat
+        run: |
+          echo === Cleaning Previous Build Artifacts ===
+          :: Force delete the intermediate build outputs if they exist
+          if exist Release_x64 rmdir /s /q Release_x64
+          if exist libdjvu\Release_x64 rmdir /s /q libdjvu\Release_x64
+          
+          :: Delete any lingering object or precompiled header files in libdjvu
+          del /s /q libdjvu\*.obj 2>nul
+          del /s /q libdjvu\*.pch 2>nul
+          del /s /q libdjvu\*.lib 2>nul
+          
+          echo === Executing Clean Compilation ===
+          call build_x64.bat
 
       - name: Upload Binary and Symbols
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: WinDjView-x64
           path: |
