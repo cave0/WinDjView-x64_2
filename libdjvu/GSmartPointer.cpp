@@ -123,17 +123,21 @@ GPBase::assign (const GPBase &sptr)
 {
   if (this == &sptr)
     return *this;
+
+  // Protect reading source pointer
   int volatile *lockb = &locks[LOCKIDX(&sptr)].lock;
   atomicAcquireOrSpin(lockb);
   GPEnabled *nptr = sptr.ptr;
   if (nptr)
     nptr->ref();
   atomicRelease(lockb);
-  int volatile *locka = &locks[LOCKIDX(this)].lock;
-  atomicAcquireOrSpin(locka);
-  GPEnabled *old = ptr;
-  ptr = nptr;
-  atomicRelease(locka);
+
+  // Atomically swap destination pointer using atomic compare-and-swap loop
+  GPEnabled *old;
+  do {
+    old = ptr;
+  } while (!atomicCompareAndSwap((int volatile*)&ptr, (int)old, (int)nptr));
+
   if (old)
     old->unref();
   return *this;
@@ -144,11 +148,12 @@ GPBase::assign (GPEnabled *nptr)
 {
   if (nptr)
     nptr->ref();
-  int volatile *locka = &locks[LOCKIDX(this)].lock;
-  atomicAcquireOrSpin(locka);
-  GPEnabled *old = ptr;
-  ptr = nptr;
-  atomicRelease(locka);
+
+  GPEnabled *old;
+  do {
+    old = ptr;
+  } while (!atomicCompareAndSwap((int volatile*)&ptr, (int)old, (int)nptr));
+
   if (old)
     old->unref();
   return *this;
