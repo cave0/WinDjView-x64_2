@@ -94,7 +94,7 @@
 #include <list>
 #include <map>
 #include <sstream>
-using namespace std;
+// using namespace std;
 
 #define HAS_WCTYPE 1
 #define THREADMODEL 0
@@ -113,6 +113,7 @@ using namespace std;
 #include "libdjvu/DataPool.h"
 #include "libdjvu/DjVuText.h"
 #include "libdjvu/DjVmNav.h"
+using namespace std;
 
 // Application messages
 #define WM_PAGE_DECODED (WM_APP + 1)
