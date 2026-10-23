@@ -1686,7 +1686,7 @@ GBitmap::rotate(int count)
     dbitmap.set_grays(grays);
     switch(count)
     {
-    case 3: // rotate 90 counter clockwise
+    case 3: // rotate 90 counter clockwise with parallel non-overlapping destination tiles
       {
         const int d_rows = dbitmap.rows();
         GTArray<unsigned char*> d_row_ptrs(0, d_rows - 1);
@@ -1694,12 +1694,15 @@ GBitmap::rotate(int count)
           d_row_ptrs[r] = dbitmap[r];
 
         const int BS = 32;
-        for (int y0 = 0; y0 < nrows; y0 += BS)
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic) if (ncolumns >= 64)
+#endif
+        for (int x0 = 0; x0 < (int)ncolumns; x0 += BS)
         {
-          const int y_end = min(y0 + BS, (int)nrows);
-          for (int x0 = 0; x0 < ncolumns; x0 += BS)
+          const int x_end = min(x0 + BS, (int)ncolumns);
+          for (int y0 = 0; y0 < (int)nrows; y0 += BS)
           {
-            const int x_end = min(x0 + BS, (int)ncolumns);
+            const int y_end = min(y0 + BS, (int)nrows);
             for (int y = y0; y < y_end; y++)
             {
               const unsigned char *r = (*this)[y];
@@ -1714,20 +1717,24 @@ GBitmap::rotate(int count)
       break;
     case 2: // rotate 180 counter clockwise
       {
-        const int lastrow = dbitmap.rows()-1;
-        const int lastcolumn = dbitmap.columns()-1;
-        for(int y=0,ynew=lastrow;ynew>=0; y++,ynew--)
+        const int lastrow = dbitmap.rows() - 1;
+        const int lastcolumn = dbitmap.columns() - 1;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) if (dbitmap.rows() >= 64)
+#endif
+        for (int y = 0; y <= lastrow; y++)
         {
-          const unsigned char *r=operator[] (y);
-          unsigned char *d=dbitmap[ynew];
-          for(int xnew=lastcolumn;xnew>=0; r++,--xnew)
+          int ynew = lastrow - y;
+          const unsigned char *r = operator[](y);
+          unsigned char *d = dbitmap[ynew];
+          for (int xnew = lastcolumn, x = 0; xnew >= 0; x++, xnew--)
           {
-            d[xnew] = *r;
+            d[xnew] = r[x];
           }
         }
       }
       break;
-    case 1: // rotate 270 counter clockwise
+    case 1: // rotate 270 counter clockwise with parallel non-overlapping destination tiles
       {
         const int d_rows = dbitmap.rows();
         const int d_cols = dbitmap.columns();
@@ -1736,12 +1743,15 @@ GBitmap::rotate(int count)
           d_row_ptrs[r] = dbitmap[r];
 
         const int BS = 32;
-        for (int y0 = 0; y0 < nrows; y0 += BS)
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic) if (ncolumns >= 64)
+#endif
+        for (int x0 = 0; x0 < (int)ncolumns; x0 += BS)
         {
-          const int y_end = min(y0 + BS, (int)nrows);
-          for (int x0 = 0; x0 < ncolumns; x0 += BS)
+          const int x_end = min(x0 + BS, (int)ncolumns);
+          for (int y0 = 0; y0 < (int)nrows; y0 += BS)
           {
-            const int x_end = min(x0 + BS, (int)ncolumns);
+            const int y_end = min(y0 + BS, (int)nrows);
             for (int y = y0; y < y_end; y++)
             {
               const unsigned char *r = (*this)[y];

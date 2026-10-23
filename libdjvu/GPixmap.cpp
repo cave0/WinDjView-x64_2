@@ -1727,15 +1727,18 @@ GP<GPixmap> GPixmap::rotate(int count)
     const int TILE = 32;
     switch(count)
     {
-    case 3: //// rotate 90 counter clockwise with cache blocking
+    case 3: //// rotate 90 counter clockwise with parallel non-overlapping destination tiles
         {
-            int lastrow = dpixmap.rows()-1;
-            for(int y0=0; y0<nrows; y0+=TILE)
+            int lastrow = dpixmap.rows() - 1;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic) if (ncolumns >= 64)
+#endif
+            for(int x0=0; x0<ncolumns; x0+=TILE)
             {
-                int ymax = mini(y0+TILE, nrows);
-                for(int x0=0; x0<ncolumns; x0+=TILE)
+                int xmax = mini(x0+TILE, ncolumns);
+                for(int y0=0; y0<nrows; y0+=TILE)
                 {
-                    int xmax = mini(x0+TILE, ncolumns);
+                    int ymax = mini(y0+TILE, nrows);
                     for(int y=y0; y<ymax; y++)
                     {
                         const GPixel *r = (*this)[y];
@@ -1750,29 +1753,36 @@ GP<GPixmap> GPixmap::rotate(int count)
         break;
     case 2: //// rotate 180 counter clockwise
         {
-            int lastrow = dpixmap.rows()-1;
-            int lastcolumn = dpixmap.columns()-1;
+            int lastrow = dpixmap.rows() - 1;
+            int lastcolumn = dpixmap.columns() - 1;
 
-            for(int y=0,ynew=lastrow; ynew>=0; y++,ynew--)
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) if (dpixmap.rows() >= 64)
+#endif
+            for(int y=0; y<=lastrow; y++)
             {
-                const GPixel *r=operator [] (y);
-                GPixel *d=dpixmap[ynew];
-                for(int xnew=lastcolumn; xnew>=0; r++,xnew--)
+                int ynew = lastrow - y;
+                const GPixel *r = operator[](y);
+                GPixel *d = dpixmap[ynew];
+                for(int xnew=lastcolumn, x=0; xnew>=0; x++, xnew--)
                 {
-                    d[xnew] = *r;
+                    d[xnew] = r[x];
                 }
             }
         }
         break;
-    case 1: //// rotate 270 counter clockwise with cache blocking
+    case 1: //// rotate 270 counter clockwise with parallel non-overlapping destination tiles
         {
-            int lastcolumn = dpixmap.columns()-1;
-            for(int y0=0; y0<nrows; y0+=TILE)
+            int lastcolumn = dpixmap.columns() - 1;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic) if (ncolumns >= 64)
+#endif
+            for(int x0=0; x0<ncolumns; x0+=TILE)
             {
-                int ymax = mini(y0+TILE, nrows);
-                for(int x0=0; x0<ncolumns; x0+=TILE)
+                int xmax = mini(x0+TILE, ncolumns);
+                for(int y0=0; y0<nrows; y0+=TILE)
                 {
-                    int xmax = mini(x0+TILE, ncolumns);
+                    int ymax = mini(y0+TILE, nrows);
                     for(int y=y0; y<ymax; y++)
                     {
                         int ynew = lastcolumn - y;
