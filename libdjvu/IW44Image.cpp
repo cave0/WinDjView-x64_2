@@ -1801,8 +1801,19 @@ IWPixmap::get_pixmap(void)
   ymap->image(ptr, rowsep, pixsep);
   if (crmap && cbmap && crcb_delay >= 0)
   {
+#ifdef _OPENMP
+    #pragma omp parallel sections
+    {
+      #pragma omp section
+      cbmap->image(ptr+1, rowsep, pixsep, crcb_half);
+
+      #pragma omp section
+      crmap->image(ptr+2, rowsep, pixsep, crcb_half);
+    }
+#else
     cbmap->image(ptr+1, rowsep, pixsep, crcb_half);
     crmap->image(ptr+2, rowsep, pixsep, crcb_half);
+#endif
   }
   // Convert image data to RGB
   if (crmap && cbmap && crcb_delay >= 0)
@@ -1841,8 +1852,19 @@ IWPixmap::get_pixmap(int subsample, const GRect &rect)
   ymap->image(subsample, rect, ptr, rowsep, pixsep);
   if (crmap && cbmap && crcb_delay >= 0)
   {
+#ifdef _OPENMP
+    #pragma omp parallel sections
+    {
+      #pragma omp section
+      cbmap->image(subsample, rect, ptr+1, rowsep, pixsep, crcb_half);
+
+      #pragma omp section
+      crmap->image(subsample, rect, ptr+2, rowsep, pixsep, crcb_half);
+    }
+#else
     cbmap->image(subsample, rect, ptr+1, rowsep, pixsep, crcb_half);
     crmap->image(subsample, rect, ptr+2, rowsep, pixsep, crcb_half);
+#endif
   }
   // Convert image data to RGB
   if (crmap && cbmap && crcb_delay >= 0)
