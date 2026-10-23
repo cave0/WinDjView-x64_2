@@ -638,12 +638,14 @@ GBitmap::blit(const GBitmap *bm, int x, int y)
               for (; c + 15 < end_col; c += 16)
                 {
                   __m128i cur = _mm_loadu_si128((const __m128i*)(drow + c));
-                  _mm_storeu_si128((__m128i*)(drow + c), _mm_add_epi8(cur, v_one));
+                  _mm_storeu_si128((__m128i*)(drow + c), _mm_adds_epu8(cur, v_one));
                 }
 #endif
               while (c < end_col)
                 {
-                  drow[c++] += 1;
+                  int sum = (int)drow[c] + 1;
+                  drow[c] = (unsigned char)(sum > 255 ? 255 : sum);
+                  c++;
                 }
             }
           sc = nc;
