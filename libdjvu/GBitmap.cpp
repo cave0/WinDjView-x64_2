@@ -595,11 +595,12 @@ GBitmap::blit(const GBitmap *bm, int x, int y)
                 {
                   __m128i d_vec = _mm_loadu_si128((const __m128i*)(drow + sc));
                   __m128i s_vec = _mm_loadu_si128((const __m128i*)(srow + sc));
-                  _mm_storeu_si128((__m128i*)(drow + sc), _mm_add_epi8(d_vec, s_vec));
+                  _mm_storeu_si128((__m128i*)(drow + sc), _mm_adds_epu8(d_vec, s_vec));
                 }
               while (sc < sc1)
                 {
-                  drow[sc] += srow[sc];
+                  int sum = (int)drow[sc] + (int)srow[sc];
+                  drow[sc] = (unsigned char)(sum > 255 ? 255 : sum);
                   sc += 1;
                 }
             }
