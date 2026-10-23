@@ -694,15 +694,51 @@ GPixmapScaler::scale( const GRect &provided_input, const GPixmap &input,
         // Compute line
         GPixel *dest = lbuffer+1;
         const int frac = fy & FRACMASK;
-        for(GPixel const * const edest = (GPixel const *)dest+bufw;
-          dest<edest;upper++,lower++,dest++)
+        const unsigned char *lb = (const unsigned char *)lower;
+        const unsigned char *ub = (const unsigned char *)upper;
+        unsigned char *db = (unsigned char *)dest;
+        size_t rem_bytes = (size_t)bufw * sizeof(GPixel);
+#if defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86_FP)
+        const __m128i v_frac = _mm_set1_epi16((short)frac);
+        const __m128i v_round = _mm_set1_epi16((short)FRACSIZE2);
+        const __m128i v_zero = _mm_setzero_si128();
+
+        while (rem_bytes >= 16)
         {
-          const int lower_r = lower->r;
-          dest->r = (unsigned char)(lower_r + ((((int)upper->r - lower_r) * frac + FRACSIZE2) >> FRACBITS));
-          const int lower_g = lower->g;
-          dest->g = (unsigned char)(lower_g + ((((int)upper->g - lower_g) * frac + FRACSIZE2) >> FRACBITS));
-          const int lower_b = lower->b;
-          dest->b = (unsigned char)(lower_b + ((((int)upper->b - lower_b) * frac + FRACSIZE2) >> FRACBITS));
+          __m128i l_raw = _mm_loadu_si128((const __m128i*)lb);
+          __m128i u_raw = _mm_loadu_si128((const __m128i*)ub);
+
+          __m128i l_lo = _mm_unpacklo_epi8(l_raw, v_zero);
+          __m128i u_lo = _mm_unpacklo_epi8(u_raw, v_zero);
+          __m128i l_hi = _mm_unpackhi_epi8(l_raw, v_zero);
+          __m128i u_hi = _mm_unpackhi_epi8(u_raw, v_zero);
+
+          __m128i diff_lo = _mm_sub_epi16(u_lo, l_lo);
+          __m128i diff_hi = _mm_sub_epi16(u_hi, l_hi);
+
+          __m128i prod_lo = _mm_add_epi16(_mm_mullo_epi16(diff_lo, v_frac), v_round);
+          __m128i prod_hi = _mm_add_epi16(_mm_mullo_epi16(diff_hi, v_frac), v_round);
+
+          __m128i shift_lo = _mm_srai_epi16(prod_lo, FRACBITS);
+          __m128i shift_hi = _mm_srai_epi16(prod_hi, FRACBITS);
+
+          __m128i res_lo = _mm_add_epi16(l_lo, shift_lo);
+          __m128i res_hi = _mm_add_epi16(l_hi, shift_hi);
+
+          __m128i res = _mm_packus_epi16(res_lo, res_hi);
+          _mm_storeu_si128((__m128i*)db, res);
+
+          lb += 16;
+          ub += 16;
+          db += 16;
+          rem_bytes -= 16;
+        }
+#endif
+        while (rem_bytes-- > 0)
+        {
+          const int l = *lb++;
+          const int u = *ub++;
+          *db++ = (unsigned char)(l + (((u - l) * frac + FRACSIZE2) >> FRACBITS));
         }
       }
       // Perform horizontal interpolation
