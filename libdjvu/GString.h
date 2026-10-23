@@ -727,6 +727,9 @@ protected:
   inline int CheckSubscript(int n) const;
 };
 
+// Make the string hash overload visible to lookup.
+DJVUAPI unsigned int hash(const GBaseString &ref);
+
 /** General purpose character string.
     Each instance of class #GUTF8String# represents a character
     string.  Overloaded operators provide a value semantic to
