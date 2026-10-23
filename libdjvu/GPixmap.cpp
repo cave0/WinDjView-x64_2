@@ -732,7 +732,10 @@ GPixmap::color_correct(double gamma_correction, GPixel white)
   // Compute correction table
   unsigned char gtable[256][3];
   color_correction_table_cache(gamma_correction, white, gtable);
-  // Perform correction
+  // Perform correction in parallel across CPU cores
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) if (nrows >= 64)
+#endif
   for (int y=0; y<nrows; y++)
   {
     GPixel *pix = (*this)[y];
@@ -830,7 +833,10 @@ GPixmap::ordered_666_dither(int xmin, int ymin)
       quant[j++] = i-0x19;
     dither_ok = 1;
   }
-  // Go dithering
+  // Go dithering in parallel across CPU cores
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) if (nrows >= 64)
+#endif
   for (int y=0; y<nrows; y++)
   {
     GPixel *pix = (*this)[y];
@@ -883,7 +889,10 @@ GPixmap::ordered_32k_dither(int xmin, int ymin)
       quant[j++] = 0xff;
     dither_ok = 1;
   }
-  // Go dithering
+  // Go dithering in parallel across CPU cores
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) if (nrows >= 64)
+#endif
   for (int y=0; y<nrows; y++)
   {
     GPixel *pix = (*this)[y];
@@ -930,29 +939,34 @@ GPixmap::downsample(const GPixmap *src, int factor, const GRect *pdr)
   // initialise pixmap
   init(rect.height(), rect.width(), 0);
 
-  // determine starting and ending points in source rectangle
-  int sy = rect.ymin * factor;
-  int sxz = rect.xmin * factor;
+  const int sxz = rect.xmin * factor;
+  const int src_stride = src->rowsize();
+  const int src_rows = (int)src->rows();
+  const int src_cols = (int)src->columns();
 
-
-  // loop over source rows
-  const GPixel *sptr = (*src)[sy];
-  GPixel *dptr = (*this)[0];
+  // loop over source rows in parallel across CPU cores
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) if (nrows >= 32)
+#endif
   for (int y=0; y<nrows; y++)
   {
+    int sy = (rect.ymin + y) * factor;
+    const GPixel *sptr = (*src)[sy];
+    GPixel *dptr = (*this)[y];
     int sx = sxz;
+
     // loop over source columns
     for (int x=0; x<ncolumns; x++)
     {
       int r=0, g=0, b=0, s=0;
-      // compute average bounds
       const GPixel *ksptr = sptr;
       int lsy = sy + factor;
-      if (lsy > (int)src->rows())
-        lsy = (int)src->rows();
+      if (lsy > src_rows)
+        lsy = src_rows;
       int lsx = sx + factor;
-      if (lsx > (int)src->columns())
-        lsx = (int)src->columns();
+      if (lsx > src_cols)
+        lsx = src_cols;
+
       // compute average
       for (int rsy=sy; rsy<lsy; rsy++)
       {
@@ -963,8 +977,9 @@ GPixmap::downsample(const GPixmap *src, int factor, const GRect *pdr)
           b += ksptr[rsx].b;
           s += 1;
         }
-        ksptr += src->rowsize();
+        ksptr += src_stride;
       }
+
       // set pixel color
       if (s >= (int)(sizeof(invmap)/sizeof(int)))
       {
@@ -979,13 +994,8 @@ GPixmap::downsample(const GPixmap *src, int factor, const GRect *pdr)
         dptr[x].g = (g*invmap[s] + 0x8000) >> 16;
         dptr[x].b = (b*invmap[s] + 0x8000) >> 16;
       }
-      // next column
-      sx = sx + factor;
+      sx += factor;
     }
-    // next row
-    sy = sy + factor;
-    sptr = sptr + factor * src->rowsize();
-    dptr = dptr + rowsize();
   }
 }
 
