@@ -626,10 +626,24 @@ GBitmap::blit(const GBitmap *bm, int x, int y)
           int nc = sc + z;
           if (p && sr+y>=0 && sr+y<nrows) 
             {
-              if (sc + x < 0) 
-                sc = min(-x, nc); 
-              while (sc < nc && sc + x<ncolumns)
-                drow[sc++] += 1;
+              int start_col = sc;
+              if (start_col + x < 0) 
+                start_col = min(-x, nc);
+              int end_col = min(nc, ncolumns - x);
+
+              int c = start_col;
+#if defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86_FP)
+              const __m128i v_one = _mm_set1_epi8(1);
+              for (; c + 15 < end_col; c += 16)
+                {
+                  __m128i cur = _mm_loadu_si128((const __m128i*)(drow + c));
+                  _mm_storeu_si128((__m128i*)(drow + c), _mm_add_epi8(cur, v_one));
+                }
+#endif
+              while (c < end_col)
+                {
+                  drow[c++] += 1;
+                }
             }
           sc = nc;
           p = 1 - p;
