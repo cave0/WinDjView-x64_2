@@ -121,33 +121,13 @@ struct AlignedLock {
 static AlignedLock locks[LOCKMASK+1];
 
 
-static inline GPEnabled*
-atomic_exchange_ptr(GPEnabled* volatile *target, GPEnabled *val)
-{
-#if defined(_MSC_VER)
-# if defined(_M_X64) || defined(_WIN64)
-  return (GPEnabled*)_InterlockedExchange64((__int64 volatile*)target, (__int64)val);
-# else
-  return (GPEnabled*)_InterlockedExchange((long volatile*)target, (long)val);
-# endif
-#elif defined(__GNUC__) || defined(__clang__)
-  return __atomic_exchange_n(target, val, __ATOMIC_ACQ_REL);
-#else
-  int volatile *lock = &locks[LOCKIDX(target)].lock;
-  atomicAcquireOrSpin(lock);
-  GPEnabled *old = *target;
-  *target = val;
-  atomicRelease(lock);
-  return old;
-#endif
-}
-
 GPBase&
 GPBase::assign (const GPBase &sptr)
 {
   if (this == &sptr)
     return *this;
 
+  // 1. Lock source stripe to safely read and increment refcount
   int volatile *lockb = &locks[LOCKIDX(&sptr)].lock;
   atomicAcquireOrSpin(lockb);
   GPEnabled *nptr = sptr.ptr;
@@ -155,7 +135,14 @@ GPBase::assign (const GPBase &sptr)
     nptr->ref();
   atomicRelease(lockb);
 
-  GPEnabled *old = atomic_exchange_ptr(&ptr, nptr);
+  // 2. Lock destination stripe to safely swap pointer
+  int volatile *locka = &locks[LOCKIDX(this)].lock;
+  atomicAcquireOrSpin(locka);
+  GPEnabled *old = ptr;
+  ptr = nptr;
+  atomicRelease(locka);
+
+  // 3. Decrement previous object refcount outside of critical section
   if (old)
     old->unref();
   return *this;
@@ -167,7 +154,13 @@ GPBase::assign (GPEnabled *nptr)
   if (nptr)
     nptr->ref();
 
-  GPEnabled *old = atomic_exchange_ptr(&ptr, nptr);
+  // Lock destination stripe to ensure writers serialize with concurrent readers
+  int volatile *locka = &locks[LOCKIDX(this)].lock;
+  atomicAcquireOrSpin(locka);
+  GPEnabled *old = ptr;
+  ptr = nptr;
+  atomicRelease(locka);
+
   if (old)
     old->unref();
   return *this;
