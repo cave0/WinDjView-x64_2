@@ -151,6 +151,9 @@ GPBase::assign (const GPBase &sptr)
 GPBase&
 GPBase::assign (GPEnabled *nptr)
 {
+  if (ptr == nptr)
+    return *this;
+
   if (nptr)
     nptr->ref();
 

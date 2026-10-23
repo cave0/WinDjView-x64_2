@@ -154,6 +154,8 @@ public:
       Increments the reference count. 
       @param sptr reference to a #GPBase# object. */
   GPBase(const GPBase &sptr);
+  /** Move Constructor. */
+  GPBase(GPBase &&sptr) noexcept;
   /** Construct a GPBase from a pointer.
       Increments the reference count.
       @param nptr pointer to a #GPEnabled# object. */
@@ -173,6 +175,8 @@ public:
   GPBase& assign(GPEnabled *nptr);
   /** Assignment operator. */
   GPBase & operator=(const GPBase & obj);
+  /** Move assignment operator. */
+  GPBase & operator=(GPBase && obj) noexcept;
   /** Comparison operator. */
   int operator==(const GPBase & g2) const;
 protected:
@@ -247,6 +251,8 @@ public:
   /** Constructs a copy of a smart-pointer.
       @param sptr smart-pointer to copy. */
   GP(const GP<TYPE> &sptr);
+  /** Move constructor. */
+  GP(GP<TYPE> &&sptr) noexcept;
   /** Constructs a smart-pointer from a regular pointer.
       The pointed object must be dynamically allocated (with operator #new#).
       You should no longer explicitly destroy the object referenced by #sptr#
@@ -267,6 +273,8 @@ public:
   /** Assigns a smart-pointer to a smart-pointer lvalue.
       @param sptr smart-pointer copied into this smart-pointer. */
   GP<TYPE>& operator= (const GP<TYPE> &sptr);
+  /** Move assignment operator. */
+  GP<TYPE>& operator= (GP<TYPE> &&sptr) noexcept;
   /** Indirection operator.
       This operator provides a convenient access to the members
       of a smart-pointed object. Operator #-># works with smart-pointers
@@ -374,6 +382,13 @@ GPBase::GPBase(const GPBase &sptr)
 }
 
 inline
+GPBase::GPBase(GPBase &&sptr) noexcept
+  : ptr(sptr.ptr)
+{
+  sptr.ptr = 0;
+}
+
+inline
 GPBase::~GPBase()
 {
   GPEnabled *old = ptr;
@@ -396,6 +411,20 @@ inline GPBase &
 GPBase::operator=(const GPBase & obj)
 {
   return assign(obj);
+}
+
+inline GPBase &
+GPBase::operator=(GPBase && obj) noexcept
+{
+  if (this != &obj)
+  {
+    GPEnabled *old = ptr;
+    ptr = obj.ptr;
+    obj.ptr = 0;
+    if (old)
+      old->unref();
+  }
+  return *this;
 }
 
 inline int 
@@ -423,6 +452,12 @@ GP<TYPE>::GP(TYPE *nptr)
 template <class TYPE> inline
 GP<TYPE>::GP(const GP<TYPE> &sptr)
 : GPBase((const GPBase&) sptr)
+{
+}
+
+template <class TYPE> inline
+GP<TYPE>::GP(GP<TYPE> &&sptr) noexcept
+: GPBase(static_cast<GPBase&&>(sptr))
 {
 }
 
@@ -462,6 +497,12 @@ template <class TYPE> inline GP<TYPE>&
 GP<TYPE>::operator= (const GP<TYPE> &sptr)
 {
   return (GP<TYPE>&)( assign((const GPBase&)sptr) );
+}
+
+template <class TYPE> inline GP<TYPE>& 
+GP<TYPE>::operator= (GP<TYPE> &&sptr) noexcept
+{
+  return (GP<TYPE>&)( GPBase::operator=(static_cast<GPBase&&>(sptr)) );
 }
 
 template <class TYPE> inline int
