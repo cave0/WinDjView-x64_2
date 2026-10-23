@@ -74,7 +74,7 @@ COMPOPT = /nologo /c /W3 /Fo"$(INTDIR)\\" $(WINTYPE) /D"_WINDOWS" /D"_CONSOLE" /
 			/D"HAS_WCTYPE=1" /D"THREADMODEL=0" /D"DO_CHANGELOCALE=0" /D"WIN32_MONITOR" \
 			/D"NEED_JPEG_DECODER" /D"WIN32_JPEG" /D"_CRT_SECURE_NO_DEPRECATE" \
 			/D"_CRT_NONSTDC_NO_DEPRECATE" /D"_SECURE_SCL=0" /D"_UNICODE" /D"UNICODE" \
-			/std:c++20 /Zc:__cplusplus
+			/std:c++20 /Zc:__cplusplus /Zc:hiddenFriend- /Zc:referenceBinding-
 
 !IFNDEF MAKEDLL
 COMPOPT = $(COMPOPT) /D"LIBDJVU_STATIC"
