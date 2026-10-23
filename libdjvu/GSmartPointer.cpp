@@ -69,6 +69,9 @@
 
 #include <stddef.h>
 #include <string.h>
+#if defined(_MSC_VER)
+# include <intrin.h>
+#endif
 #if PARANOID_DEBUG
 # include <assert.h>
 #endif
@@ -118,13 +121,33 @@ struct AlignedLock {
 static AlignedLock locks[LOCKMASK+1];
 
 
+static inline GPEnabled*
+atomic_exchange_ptr(GPEnabled* volatile *target, GPEnabled *val)
+{
+#if defined(_MSC_VER)
+# if defined(_M_X64) || defined(_WIN64)
+  return (GPEnabled*)_InterlockedExchange64((__int64 volatile*)target, (__int64)val);
+# else
+  return (GPEnabled*)_InterlockedExchange((long volatile*)target, (long)val);
+# endif
+#elif defined(__GNUC__) || defined(__clang__)
+  return __atomic_exchange_n(target, val, __ATOMIC_ACQ_REL);
+#else
+  int volatile *lock = &locks[LOCKIDX(target)].lock;
+  atomicAcquireOrSpin(lock);
+  GPEnabled *old = *target;
+  *target = val;
+  atomicRelease(lock);
+  return old;
+#endif
+}
+
 GPBase&
 GPBase::assign (const GPBase &sptr)
 {
   if (this == &sptr)
     return *this;
 
-  // Protect reading source pointer
   int volatile *lockb = &locks[LOCKIDX(&sptr)].lock;
   atomicAcquireOrSpin(lockb);
   GPEnabled *nptr = sptr.ptr;
@@ -132,12 +155,7 @@ GPBase::assign (const GPBase &sptr)
     nptr->ref();
   atomicRelease(lockb);
 
-  // Atomically swap destination pointer using atomic compare-and-swap loop
-  GPEnabled *old;
-  do {
-    old = ptr;
-  } while (!atomicCompareAndSwap((int volatile*)&ptr, (int)old, (int)nptr));
-
+  GPEnabled *old = atomic_exchange_ptr(&ptr, nptr);
   if (old)
     old->unref();
   return *this;
@@ -149,11 +167,7 @@ GPBase::assign (GPEnabled *nptr)
   if (nptr)
     nptr->ref();
 
-  GPEnabled *old;
-  do {
-    old = ptr;
-  } while (!atomicCompareAndSwap((int volatile*)&ptr, (int)old, (int)nptr));
-
+  GPEnabled *old = atomic_exchange_ptr(&ptr, nptr);
   if (old)
     old->unref();
   return *this;
