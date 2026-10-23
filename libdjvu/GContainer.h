@@ -208,6 +208,21 @@ hash(const double & x)
 }
 
 
+namespace GContainerHashDetail
+{
+#ifdef HAVE_NAMESPACES
+  using DJVU::hash;
+#else
+  using ::hash;
+#endif
+
+  template <class T>
+  inline unsigned int hash_key(const T& x)
+  {
+    return hash(x);
+  }
+}
+
 
 // ------------------------------------------------------------
 // HELPER CLASSES
@@ -1138,7 +1153,7 @@ GSetImpl<K>::get(const K &key) const
 { 
 //< Changed for WinDjView project
 //  unsigned int hashcode = hash(key);
-  unsigned int hashcode = hash(key);
+  unsigned int hashcode = GContainerHashDetail::hash_key(key);
 //>
   for (SNode *s=(SNode*)hashnode(hashcode); s; s=(SNode*)(s->hprev))
     if (s->hashcode == hashcode && s->key == key) return s;
@@ -1174,7 +1189,7 @@ GSetImpl<K>::get_or_create(const K &key)
   memset(n, 0, sizeof(SNode));
 #endif
   new ((void*)&(n->key)) K ( key );
-  n->hashcode = hash((const K&)(n->key));
+  n->hashcode = GContainerHashDetail::hash_key((const K&)(n->key));
   installnode(n);
   return n;
 }
@@ -1214,7 +1229,7 @@ GMapImpl<K,TI>::get_or_create(const K &key)
   new ((void*)&(n->val)) TI ();
 //< Changed for WinDjView project
 //  n->hashcode = hash((const K&)(n->key));
-  n->hashcode = hash((const K&)(n->key));
+  n->hashcode = GContainerHashDetail::hash_key((const K&)(n->key));
 //>
   this->installnode(n);
   return n;
