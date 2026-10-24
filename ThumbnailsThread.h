@@ -24,9 +24,34 @@
 #include <deque>
 #include <memory>
 
+#include <cstdint>
+
 class DjVuSource;
 class CDIB;
 
+struct ThumbnailResult : public Message
+{
+	int nPage;
+	std::uint64_t nGeneration;
+	CDIB* pBitmap;
+
+	ThumbnailResult(int page, std::uint64_t gen, CDIB* dib)
+		: Message(THUMBNAIL_RENDERED),
+			nPage(page),
+			nGeneration(gen),
+			pBitmap(dib)
+	{
+	}
+
+	virtual ~ThumbnailResult()
+	{
+		delete pBitmap;
+		pBitmap = nullptr;
+	}
+
+	ThumbnailResult(const ThumbnailResult&) = delete;
+	ThumbnailResult& operator=(const ThumbnailResult&) = delete;
+};
 
 class CThumbnailsThread
 {
@@ -35,7 +60,7 @@ public:
 	void Stop();
 
 	void AddJob(int nPage, int nRotate, const CSize& size,
-			const CDisplaySettings& displaySettings);
+			const CDisplaySettings& displaySettings, std::uint64_t nGeneration);
 	void RemoveAllJobs();
 
 	void PauseJobs();
@@ -60,6 +85,7 @@ private:
 		int nRotate;
 		CSize size;
 		CDisplaySettings displaySettings;
+		std::uint64_t nGeneration;
 	};
 	std::deque<Job> m_jobs;
 	Job m_currentJob;

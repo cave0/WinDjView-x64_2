@@ -22,7 +22,12 @@
 #include "MyScrollView.h"
 #include "Drawing.h"
 #include "AppSettings.h"
+#include <cstdint>
+#include <memory>
+#include <unordered_set>
+
 class DjVuSource;
+struct ThumbnailResult;
 class CThumbnailsThread;
 
 
@@ -79,8 +84,9 @@ protected:
 	int m_nThumbnailSize;
 	CSize m_szThumbnail;
 
-	CCriticalSection m_dataLock;
-	set<CDIB*> m_bitmaps;
+	std::uint64_t m_nGeneration;
+	CCriticalSection m_pendingLock;
+	std::unordered_set<ThumbnailResult*> m_pendingResults;
 
 	CDisplaySettings m_displaySettings;
 	void SettingsChanged();

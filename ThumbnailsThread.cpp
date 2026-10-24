@@ -112,7 +112,15 @@ unsigned int __stdcall CThumbnailsThread::RenderThreadProc(void* pvData)
 
 		if (bNotify)
 		{
-			pThread->m_pOwner->OnUpdate(NULL, &BitmapMsg(THUMBNAIL_RENDERED, job.nPage, spBitmap.release()));
+			std::unique_ptr<ThumbnailResult> spResult(
+				new (std::nothrow) ThumbnailResult(job.nPage, job.nGeneration, spBitmap.get())
+			);
+
+			if (spResult)
+			{
+				spBitmap.release();
+				pThread->m_pOwner->OnUpdate(nullptr, spResult.release());
+			}
 		}
 		// If !bNotify, spBitmap destructor deletes pBitmap immediately: zero leaks
 	}
@@ -194,16 +202,19 @@ CDIB* CThumbnailsThread::Render(Job& job)
 	return pBitmap;
 }
 
-void CThumbnailsThread::AddJob(int nPage, int nRotate, const CSize& size, const CDisplaySettings& displaySettings)
+void CThumbnailsThread::AddJob(int nPage, int nRotate, const CSize& size,
+		const CDisplaySettings& displaySettings, std::uint64_t nGeneration)
 {
 	Job job;
 	job.nPage = nPage;
 	job.nRotate = nRotate;
 	job.size = size;
 	job.displaySettings = displaySettings;
+	job.nGeneration = nGeneration;
 
 	m_lock.Lock();
 	if (m_currentJob.nPage == job.nPage
+			&& m_currentJob.nGeneration == job.nGeneration
 			&& m_currentJob.nRotate == nRotate
 			&& m_currentJob.size == job.size
 			&& m_currentJob.displaySettings == job.displaySettings)

@@ -69,7 +69,8 @@ END_MESSAGE_MAP()
 CThumbnailsView::CThumbnailsView(DjVuSource* pSource)
 	: m_bInsideUpdateLayout(false), m_nPageCount(0), m_bVisible(false),
 	  m_pThread(NULL), m_pIdleThread(NULL), m_nActivePage(-1), m_pSource(pSource),
-	  m_nCurrentPage(-1), m_nRotate(0), m_nPagesInRow(1), m_bInitialized(false)
+	  m_nCurrentPage(-1), m_nRotate(0), m_nPagesInRow(1), m_bInitialized(false),
+	  m_nGeneration(0)
 {
 	m_pSource->AddRef();
 
@@ -90,16 +91,27 @@ CThumbnailsView::CThumbnailsView(DjVuSource* pSource)
 
 CThumbnailsView::~CThumbnailsView()
 {
+	if (m_pThread != NULL)
+	{
+		m_pThread->Stop();
+		m_pThread = NULL;
+	}
+
+	if (m_pIdleThread != NULL)
+	{
+		m_pIdleThread->Stop();
+		m_pIdleThread = NULL;
+	}
+
 	for (int nPage = 0; nPage < m_nPageCount; ++nPage)
 		m_pages[nPage].DeleteBitmap();
 
-	m_dataLock.Lock();
-
-	for (set<CDIB*>::iterator it = m_bitmaps.begin(); it != m_bitmaps.end(); ++it)
-		delete *it;
-	m_bitmaps.clear();
-
-	m_dataLock.Unlock();
+	{
+		CSingleLock lock(&m_pendingLock, TRUE);
+		for (ThumbnailResult* pRes : m_pendingResults)
+			delete pRes;
+		m_pendingResults.clear();
+	}
 
 	if (m_pSource != NULL)
 		m_pSource->Release();
@@ -326,9 +338,17 @@ void CThumbnailsView::OnInitialUpdate()
 
 void CThumbnailsView::UpdateAllThumbnails()
 {
-	if (m_pThread != NULL && m_pIdleThread != NULL)
+	++m_nGeneration;
+
+	if (m_pThread != NULL)
 	{
+		m_pThread->RemoveAllJobs();
 		m_pThread->RejectCurrentJob();
+	}
+
+	if (m_pIdleThread != NULL)
+	{
+		m_pIdleThread->RemoveAllJobs();
 		m_pIdleThread->RejectCurrentJob();
 	}
 
@@ -870,28 +890,43 @@ void CThumbnailsView::UpdatePage(int nPage, CThumbnailsThread* pThread)
 			!(page.szBitmap.cx <= m_szThumbnail.cx && page.szBitmap.cy == m_szThumbnail.cy ||
 			  page.szBitmap.cx == m_szThumbnail.cx && page.szBitmap.cy <= m_szThumbnail.cy))
 	{
-		pThread->AddJob(nPage, m_nRotate, m_szThumbnail, m_displaySettings);
+		pThread->AddJob(nPage, m_nRotate, m_szThumbnail, m_displaySettings, m_nGeneration);
 		InvalidatePage(nPage);
 	}
 }
 
 LRESULT CThumbnailsView::OnThumbnailRendered(WPARAM wParam, LPARAM lParam)
 {
-	int nPage = (int)wParam;
-	CDIB* pBitmap = reinterpret_cast<CDIB*>(lParam);
+	std::unique_ptr<ThumbnailResult> spResult(reinterpret_cast<ThumbnailResult*>(lParam));
+	if (!spResult)
+		return 0;
 
-	m_dataLock.Lock();
-	m_bitmaps.erase(pBitmap);
-	m_dataLock.Unlock();
+	// 1. Deregister from pending tracking set
+	{
+		CSingleLock lock(&m_pendingLock, TRUE);
+		m_pendingResults.erase(spResult.get());
+	}
+
+	int nPage = spResult->nPage;
+
+	// 2. Bounds check FIRST: prevents InvalidatePage assertions and out-of-range vector access
+	if (nPage < 0 || nPage >= m_nPageCount)
+		return 0;
+
+	// 3. Generation check: discard stale rotations/dimensions before touching state
+	if (spResult->nGeneration != m_nGeneration)
+		return 0;
 
 	Page& page = m_pages[nPage];
 	page.DeleteBitmap();
 	page.bRendered = true;
-	if (pBitmap != NULL)
+	if (spResult->pBitmap != NULL)
 	{
-		page.pBitmap = CLightweightDIB::Create(pBitmap);
-		page.szBitmap = pBitmap->GetSize();
-		delete pBitmap;
+		page.pBitmap = CLightweightDIB::Create(spResult->pBitmap);
+		if (page.pBitmap != NULL)
+			page.szBitmap = spResult->pBitmap->GetSize();
+		else
+			page.szBitmap = m_szThumbnail;
 	}
 	else
 	{
@@ -910,17 +945,23 @@ void CThumbnailsView::OnUpdate(const Observable* source, const Message* message)
 {
 	if (message->code == THUMBNAIL_RENDERED)
 	{
-		const BitmapMsg* msg = static_cast<const BitmapMsg*>(message);
+		auto* pRawResult = const_cast<ThumbnailResult*>(static_cast<const ThumbnailResult*>(message));
+		if (!pRawResult)
+			return;
 
-		LPARAM lParam = reinterpret_cast<LPARAM>(msg->pDIB);
-		if (msg->pDIB != NULL)
+		std::unique_ptr<ThumbnailResult> spResult(pRawResult);
 		{
-			m_dataLock.Lock();
-			m_bitmaps.insert(msg->pDIB);
-			m_dataLock.Unlock();
+			CSingleLock lock(&m_pendingLock, TRUE);
+			m_pendingResults.insert(spResult.get());
 		}
 
-		PostMessage(WM_THUMBNAIL_RENDERED, msg->nPage, lParam);
+		if (!PostMessage(WM_THUMBNAIL_RENDERED, 0, reinterpret_cast<LPARAM>(spResult.get())))
+		{
+			CSingleLock lock(&m_pendingLock, TRUE);
+			m_pendingResults.erase(spResult.get());
+			return;
+		}
+		spResult.release();
 	}
 	else if (message->code == CURRENT_PAGE_CHANGED)
 	{
