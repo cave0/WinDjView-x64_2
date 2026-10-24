@@ -181,12 +181,12 @@ CDIB* CThumbnailsThread::Render(Job& job)
 		if (szPage.cx > 0 && szPage.cy > 0)
 		{
 			CSize szDisplay = job.size;
-			szDisplay.cy = static_cast<int>(1.0*szDisplay.cx*szPage.cy/szPage.cx + 0.5);
+			szDisplay.cy = static_cast<int>(((int64_t)szDisplay.cx * szPage.cy + (szPage.cx / 2)) / szPage.cx);
 
 			if (szDisplay.cy > job.size.cy)
 			{
 				szDisplay.cy = job.size.cy;
-				szDisplay.cx = min(job.size.cx, static_cast<int>(1.0*szDisplay.cy*szPage.cx/szPage.cy + 0.5));
+				szDisplay.cx = min(job.size.cx, static_cast<int>(((int64_t)szDisplay.cy * szPage.cx + (szPage.cy / 2)) / szPage.cy));
 			}
 
 			pBitmap = CRenderThread::Render(pImage, szDisplay, job.displaySettings, CDjVuView::Color, job.nRotate, true);

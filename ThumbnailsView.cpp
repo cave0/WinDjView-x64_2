@@ -163,7 +163,7 @@ void CThumbnailsView::DrawPage(CDC* pDC, int nPage)
 	COLORREF clrFrame = ChangeBrightness(clrShadow, 0.6);
 	COLORREF clrBtnface = ::GetSysColor(COLOR_BTNFACE);
 	COLORREF clrHilight = ::GetSysColor(COLOR_HIGHLIGHT);
-	static CPen penFrame(PS_SOLID, 1, clrFrame);
+	CPen penFrame(PS_SOLID, 1, clrFrame);
 
 	CPoint ptScroll = GetScrollPosition();
 
@@ -763,52 +763,53 @@ void CThumbnailsView::UpdateLayout(UpdateType updateType)
 	CSize szViewport = szClient;
 	bool bHScroll = false, bVScroll = false;
 
+	int nRowCount = 0;
 	do
 	{
 		m_nPagesInRow = max(1, (szViewport.cx - 2*nPadding) / nThumbnailWidth);
 		m_nPagesInRow = min(m_nPagesInRow, m_nPageCount);
-		int nRowCount = (m_nPageCount - 1) / m_nPagesInRow + 1;
+		nRowCount = (m_nPageCount - 1) / m_nPagesInRow + 1;
 
 		m_szDisplay = CSize(max(szViewport.cx, m_nPagesInRow*nThumbnailWidth + 2*nPadding),
 				max(szViewport.cy, nThumbnailHeight*nRowCount + 2*nPadding));
-
-		double nOffsetX = (szViewport.cx - 2*nPadding - nThumbnailWidth*m_nPagesInRow) / (2.0*m_nPagesInRow);
-		if (nOffsetX < 0)
-			nOffsetX = 0;
-
-		for (int nPage = 0; nPage < m_nPageCount; ++nPage)
-		{
-			int nRow = nPage / m_nPagesInRow;
-			int nCol = nPage % m_nPagesInRow;
-
-			Page& page = m_pages[nPage];
-
-			CPoint ptOffset(nPadding + nCol*nThumbnailWidth + static_cast<int>(2*nCol*nOffsetX),
-					nPadding + nRow*nThumbnailHeight);
-			int nWidthExtra = static_cast<int>(2*(nCol + 1)*nOffsetX) - static_cast<int>(2*nCol*nOffsetX);
-			page.rcDisplay = CRect(ptOffset, CSize(nThumbnailWidth + nWidthExtra, nThumbnailHeight));
-
-			ptOffset.Offset(static_cast<int>(nOffsetX), 0);
-
-			page.rcPage = CRect(CPoint(ptOffset.x + nHorzMargin + nFrameWidth,
-				ptOffset.y + nVertMargin + nFrameWidth), m_szThumbnail);
-
-			if (nCol == 0)
-				page.rcDisplay.left = 0;
-			if (nCol == m_nPagesInRow - 1)
-				page.rcDisplay.right = m_szDisplay.cx;
-			if (nRow == 0)
-				page.rcDisplay.top = 0;
-			if (nRow == nRowCount - 1)
-			{
-				page.rcDisplay.bottom = m_szDisplay.cy;
-				if (nPage == m_nPageCount - 1 && nCol != m_nPagesInRow - 1)
-					page.rcDisplay.right = m_szDisplay.cx;
-			}
-
-			RecalcPageRects(nPage);
-		}
 	} while (AdjustViewportSize(m_szDisplay, szViewport, bHScroll, bVScroll));
+
+	double nOffsetX = (szViewport.cx - 2*nPadding - nThumbnailWidth*m_nPagesInRow) / (2.0*m_nPagesInRow);
+	if (nOffsetX < 0)
+		nOffsetX = 0;
+
+	for (int nPage = 0; nPage < m_nPageCount; ++nPage)
+	{
+		int nRow = nPage / m_nPagesInRow;
+		int nCol = nPage % m_nPagesInRow;
+
+		Page& page = m_pages[nPage];
+
+		CPoint ptOffset(nPadding + nCol*nThumbnailWidth + static_cast<int>(2*nCol*nOffsetX),
+				nPadding + nRow*nThumbnailHeight);
+		int nWidthExtra = static_cast<int>(2*(nCol + 1)*nOffsetX) - static_cast<int>(2*nCol*nOffsetX);
+		page.rcDisplay = CRect(ptOffset, CSize(nThumbnailWidth + nWidthExtra, nThumbnailHeight));
+
+		ptOffset.Offset(static_cast<int>(nOffsetX), 0);
+
+		page.rcPage = CRect(CPoint(ptOffset.x + nHorzMargin + nFrameWidth,
+			ptOffset.y + nVertMargin + nFrameWidth), m_szThumbnail);
+
+		if (nCol == 0)
+			page.rcDisplay.left = 0;
+		if (nCol == m_nPagesInRow - 1)
+			page.rcDisplay.right = m_szDisplay.cx;
+		if (nRow == 0)
+			page.rcDisplay.top = 0;
+		if (nRow == nRowCount - 1)
+		{
+			page.rcDisplay.bottom = m_szDisplay.cy;
+			if (nPage == m_nPageCount - 1 && nCol != m_nPagesInRow - 1)
+				page.rcDisplay.right = m_szDisplay.cx;
+		}
+
+		RecalcPageRects(nPage);
+	}
 
 	CSize szDevPage(szViewport.cx*9/10, szViewport.cy*9/10);
 	CSize szDevLine(15, 15);
@@ -1113,11 +1114,11 @@ void CThumbnailsView::RecalcPageRects(int nPage)
 	if (page.pBitmap != NULL)
 	{
 		page.szDisplay.cx = m_szThumbnail.cx;
-		page.szDisplay.cy = static_cast<int>(1.0*m_szThumbnail.cx*page.szBitmap.cy/page.szBitmap.cx + 0.5);
+		page.szDisplay.cy = static_cast<int>(((int64_t)m_szThumbnail.cx * page.szBitmap.cy + (page.szBitmap.cx / 2)) / page.szBitmap.cx);
 		if (page.szDisplay.cy > m_szThumbnail.cy)
 		{
 			page.szDisplay.cy = m_szThumbnail.cy;
-			page.szDisplay.cx = min(m_szThumbnail.cx, static_cast<int>(1.0*m_szThumbnail.cy*page.szBitmap.cx/page.szBitmap.cy + 0.5));
+			page.szDisplay.cx = min(m_szThumbnail.cx, static_cast<int>(((int64_t)m_szThumbnail.cy * page.szBitmap.cx + (page.szBitmap.cy / 2)) / page.szBitmap.cy));
 		}
 
 		CPoint ptOffset = page.rcPage.Size() - page.szDisplay;
