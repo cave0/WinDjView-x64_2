@@ -111,7 +111,7 @@ protected:
 
 	struct Page
 	{
-		Page() : pBitmap(NULL), bRendered(false), bSelected(false) {}
+		Page() : pBitmap(NULL), bRendered(false), bSelected(false), inLru(false), nBytes(0) {}
 		~Page() { delete pBitmap; }
 
 		CRect rcDisplay, rcPage, rcBitmap, rcNumber;
@@ -120,14 +120,21 @@ protected:
 		bool bRendered;
 		bool bSelected;
 
-		void DeleteBitmap()
-		{
-			delete pBitmap;
-			pBitmap = NULL;
-			bRendered = false;
-		}
+		// Cache metadata
+		std::list<int>::iterator lruIt;
+		bool inLru;
+		size_t nBytes;
 	};
-	vector<Page> m_pages;
+	std::vector<Page> m_pages;
+	std::list<int> m_lruList;
+	size_t m_nCachedBytes;
+	static const size_t MAX_CACHE_BYTES = 64 * 1024 * 1024; // 64 MB target budget
+
+	void InstallThumbnail(int nPage, CDIB* pDIB);
+	void RemoveThumbnail(int nPage);
+	void ClearAllThumbnails();
+	void TouchLRU(int nPage);
+	void EnforceCacheBudget();
 	CSize m_szDisplay;
 
 	// Generated message map functions

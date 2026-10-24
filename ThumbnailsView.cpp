@@ -70,7 +70,7 @@ CThumbnailsView::CThumbnailsView(DjVuSource* pSource)
 	: m_bInsideUpdateLayout(false), m_nPageCount(0), m_bVisible(false),
 	  m_pThread(NULL), m_pIdleThread(NULL), m_nActivePage(-1), m_pSource(pSource),
 	  m_nCurrentPage(-1), m_nRotate(0), m_nPagesInRow(1), m_bInitialized(false),
-	  m_nGeneration(0)
+	  m_nGeneration(0), m_nCachedBytes(0)
 {
 	m_pSource->AddRef();
 
@@ -103,15 +103,14 @@ CThumbnailsView::~CThumbnailsView()
 		m_pIdleThread = NULL;
 	}
 
-	for (int nPage = 0; nPage < m_nPageCount; ++nPage)
-		m_pages[nPage].DeleteBitmap();
-
 	{
 		CSingleLock lock(&m_pendingLock, TRUE);
 		for (ThumbnailResult* pRes : m_pendingResults)
 			delete pRes;
 		m_pendingResults.clear();
 	}
+
+	ClearAllThumbnails();
 
 	if (m_pSource != NULL)
 		m_pSource->Release();
@@ -154,6 +153,9 @@ void CThumbnailsView::OnDraw(CDC* pDC)
 void CThumbnailsView::DrawPage(CDC* pDC, int nPage)
 {
 	Page& page = m_pages[nPage];
+
+	if (page.pBitmap != NULL)
+		TouchLRU(nPage);
 
 	COLORREF clrWindow = ::GetSysColor(COLOR_WINDOW);
 	COLORREF clrWindowText = ::GetSysColor(COLOR_WINDOWTEXT);
@@ -641,6 +643,7 @@ void CThumbnailsView::ResizeThumbnails(int nThumbnailSize)
 	m_szThumbnail.cx = CAppSettings::thumbnailWidth[m_nThumbnailSize];
 	m_szThumbnail.cy = CAppSettings::thumbnailHeight[m_nThumbnailSize];
 
+	ClearAllThumbnails();
 	UpdateAllThumbnails();
 }
 
@@ -917,23 +920,7 @@ LRESULT CThumbnailsView::OnThumbnailRendered(WPARAM wParam, LPARAM lParam)
 	if (spResult->nGeneration != m_nGeneration)
 		return 0;
 
-	Page& page = m_pages[nPage];
-	page.DeleteBitmap();
-	page.bRendered = true;
-	if (spResult->pBitmap != NULL)
-	{
-		page.pBitmap = CLightweightDIB::Create(spResult->pBitmap);
-		if (page.pBitmap != NULL)
-			page.szBitmap = spResult->pBitmap->GetSize();
-		else
-			page.szBitmap = m_szThumbnail;
-	}
-	else
-	{
-		page.szBitmap = m_szThumbnail;
-	}
-
-	RecalcPageRects(nPage);
+	InstallThumbnail(nPage, spResult->pBitmap);
 
 	if (InvalidatePage(nPage))
 		UpdateWindow();
@@ -976,9 +963,7 @@ void CThumbnailsView::OnUpdate(const Observable* source, const Message* message)
 		{
 			m_nRotate = msg->nRotate;
 
-			for (int nPage = 0; nPage < m_nPageCount; ++nPage)
-				m_pages[nPage].DeleteBitmap();
-
+			ClearAllThumbnails();
 			UpdateAllThumbnails();
 		}
 	}
@@ -995,6 +980,129 @@ void CThumbnailsView::OnUpdate(const Observable* source, const Message* message)
 
 		m_bInitialized = true;
 		UpdateLayout(RECALC);
+	}
+}
+
+void CThumbnailsView::RemoveThumbnail(int nPage)
+{
+	if (nPage < 0 || nPage >= static_cast<int>(m_pages.size()))
+		return;
+
+	Page& page = m_pages[nPage];
+
+	if (page.pBitmap != nullptr)
+	{
+		delete page.pBitmap;
+		page.pBitmap = nullptr;
+	}
+	page.bRendered = false;
+
+	if (page.inLru)
+	{
+		m_lruList.erase(page.lruIt);
+		page.inLru = false;
+
+		ASSERT(m_nCachedBytes >= page.nBytes);
+		m_nCachedBytes -= page.nBytes;
+		page.nBytes = 0;
+	}
+}
+
+void CThumbnailsView::ClearAllThumbnails()
+{
+	for (int i = 0; i < m_nPageCount; ++i)
+	{
+		RemoveThumbnail(i);
+	}
+	ASSERT(m_lruList.empty());
+	ASSERT(m_nCachedBytes == 0);
+	m_lruList.clear();
+	m_nCachedBytes = 0;
+}
+
+void CThumbnailsView::InstallThumbnail(int nPage, CDIB* pDIB)
+{
+	if (nPage < 0 || nPage >= static_cast<int>(m_pages.size()))
+		return;
+
+	RemoveThumbnail(nPage);
+
+	Page& page = m_pages[nPage];
+	page.bRendered = true;
+
+	if (pDIB != nullptr && pDIB->IsValid())
+	{
+		CLightweightDIB* pLightDIB = CLightweightDIB::Create(pDIB);
+		if (pLightDIB != nullptr && pLightDIB->IsValid())
+		{
+			page.pBitmap = pLightDIB;
+			page.szBitmap = pDIB->GetSize();
+
+			int nPitch = ((page.szBitmap.cx * 3 + 3) & ~3);
+			page.nBytes = static_cast<size_t>(nPitch) * page.szBitmap.cy;
+
+			m_lruList.push_front(nPage);
+			page.lruIt = m_lruList.begin();
+			page.inLru = true;
+			m_nCachedBytes += page.nBytes;
+		}
+		else
+		{
+			delete pLightDIB;
+			page.szBitmap = m_szThumbnail;
+		}
+	}
+	else
+	{
+		page.szBitmap = m_szThumbnail;
+	}
+
+	RecalcPageRects(nPage);
+	EnforceCacheBudget();
+}
+
+void CThumbnailsView::TouchLRU(int nPage)
+{
+	if (nPage < 0 || nPage >= static_cast<int>(m_pages.size()))
+		return;
+
+	Page& page = m_pages[nPage];
+	if (page.inLru && page.pBitmap != nullptr)
+	{
+		m_lruList.splice(m_lruList.begin(), m_lruList, page.lruIt);
+	}
+}
+
+void CThumbnailsView::EnforceCacheBudget()
+{
+	if (m_nCachedBytes <= MAX_CACHE_BYTES || m_lruList.empty())
+		return;
+
+	CSize szViewport = GetViewportSize();
+	int nTop = GetScrollPosition().y;
+
+	int nTopPage = 0;
+	while (nTopPage < m_nPageCount - 1 && nTop >= m_pages[nTopPage].rcDisplay.bottom)
+		++nTopPage;
+
+	int nBottomPage = nTopPage + 1;
+	while (nBottomPage < m_nPageCount && m_pages[nBottomPage].rcDisplay.top < nTop + szViewport.cy)
+		++nBottomPage;
+
+	while (!m_lruList.empty() && m_nCachedBytes > MAX_CACHE_BYTES)
+	{
+		auto it = m_lruList.rbegin();
+		while (it != m_lruList.rend() && (*it >= nTopPage && *it < nBottomPage))
+		{
+			++it; // Protect on-screen thumbnails
+		}
+
+		if (it == m_lruList.rend())
+			break; // Soft target reached: all remaining cached items are on-screen
+
+		int victimPage = *it;
+		RemoveThumbnail(victimPage);
+		RecalcPageRects(victimPage);
 	}
 }
 
@@ -1083,9 +1191,7 @@ void CThumbnailsView::SettingsChanged()
 	{
 		m_displaySettings = appSettings;
 
-		for (int nPage = 0; nPage < m_nPageCount; ++nPage)
-			m_pages[nPage].DeleteBitmap();
-
+		ClearAllThumbnails();
 		UpdateAllThumbnails();
 	}
 }
