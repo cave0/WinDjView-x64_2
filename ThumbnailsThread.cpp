@@ -31,7 +31,7 @@
 // CThumbnailsThread class
 
 CThumbnailsThread::CThumbnailsThread(DjVuSource* pSource, Observer* pOwner, bool bIdle)
-	: m_pSource(pSource), m_pOwner(pOwner), m_nPaused(0), m_bRejectCurrentJob(false)
+	: m_pSource(pSource), m_pOwner(pOwner), m_bPaused(false), m_bRejectCurrentJob(false)
 {
 	m_pSource->AddRef();
 
@@ -84,15 +84,24 @@ unsigned int __stdcall CThumbnailsThread::RenderThreadProc(void* pvData)
 		}
 
 		Job job = pThread->m_jobs.front();
+		pThread->m_jobs.pop_front();
 		pThread->m_bRejectCurrentJob = false;
 		pThread->m_currentJob = job;
-		pThread->m_jobs.pop_front();
+
+		// Abort early if thread was paused or job cancelled before decoding
+		if (pThread->IsPaused())
+		{
+			pThread->m_currentJob.nPage = -1;
+			pThread->m_lock.Unlock();
+			continue;
+		}
 		pThread->m_lock.Unlock();
 
-		CDIB* pBitmap = pThread->Render(job);
+		// RAII ownership: guarantees pBitmap is freed if cancelled or exceptions occur
+		std::unique_ptr<CDIB> spBitmap(pThread->Render(job));
 
-		// Cannot stop while the owner is being updated
-		pThread->m_stopping.Lock();
+		// RAII lock guard: guarantees m_stopping is unlocked on all exit paths
+		CSingleLock stopLock(&pThread->m_stopping, TRUE);
 
 		pThread->m_lock.Lock();
 		bool bNotify = (!pThread->m_bRejectCurrentJob);
@@ -102,8 +111,10 @@ unsigned int __stdcall CThumbnailsThread::RenderThreadProc(void* pvData)
 		pThread->m_lock.Unlock();
 
 		if (bNotify)
-			pThread->m_pOwner->OnUpdate(NULL, &BitmapMsg(THUMBNAIL_RENDERED, job.nPage, pBitmap));
-		pThread->m_stopping.Unlock();
+		{
+			pThread->m_pOwner->OnUpdate(NULL, &BitmapMsg(THUMBNAIL_RENDERED, job.nPage, spBitmap.release()));
+		}
+		// If !bNotify, spBitmap destructor deletes pBitmap immediately: zero leaks
 	}
 
 	::CoUninitialize();
@@ -120,14 +131,14 @@ unsigned int __stdcall CThumbnailsThread::RenderThreadProc(void* pvData)
 
 void CThumbnailsThread::PauseJobs()
 {
-	InterlockedExchange(&m_nPaused, 1);
+	m_bPaused.store(true, std::memory_order_release);
 }
 
 void CThumbnailsThread::ResumeJobs()
 {
 	m_lock.Lock();
 
-	InterlockedExchange(&m_nPaused, 0);
+	m_bPaused.store(false, std::memory_order_release);
 	if (!m_jobs.empty())
 		m_jobReady.SetEvent();
 
@@ -136,7 +147,7 @@ void CThumbnailsThread::ResumeJobs()
 
 bool CThumbnailsThread::IsPaused()
 {
-	return (InterlockedExchangeAdd(&m_nPaused, 0) == 1);
+	return m_bPaused.load(std::memory_order_acquire);
 }
 
 void CThumbnailsThread::RemoveAllJobs()

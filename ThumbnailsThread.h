@@ -20,6 +20,9 @@
 
 #include "AppSettings.h"
 #include "Global.h"
+#include <atomic>
+#include <deque>
+#include <memory>
 
 class DjVuSource;
 class CDIB;
@@ -49,7 +52,7 @@ private:
 	CEvent m_jobReady;
 	DjVuSource* m_pSource;
 	Observer* m_pOwner;
-	long m_nPaused;
+	std::atomic<bool> m_bPaused;
 
 	struct Job
 	{
@@ -58,7 +61,7 @@ private:
 		CSize size;
 		CDisplaySettings displaySettings;
 	};
-	list<Job> m_jobs;
+	std::deque<Job> m_jobs;
 	Job m_currentJob;
 	bool m_bRejectCurrentJob;
 
